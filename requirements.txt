@@ -1,0 +1,7 @@
+# Core dependencies
+curl_cffi>=0.7.0
+pytest>=8.0.0
+torch>=2.2.0
+transformers>=4.40.0
+peft>=0.10.0
+safetensors>=0.4.0
