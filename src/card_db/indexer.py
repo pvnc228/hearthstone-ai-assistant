@@ -31,6 +31,16 @@ DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "ca
 DEFAULT_DB_PATH = DEFAULT_CACHE_DIR / "cards.db"
 
 
+def _safe_enum(enum_cls, value):
+    """Converts raw int to enum member, returning None for unknown values instead of raising."""
+    if value is None:
+        return None
+    try:
+        return enum_cls(value)
+    except ValueError:
+        return None
+
+
 class CardDatabase:
     """
     High-performance card database with SQLite backing and in-memory indexing.
@@ -56,8 +66,22 @@ class CardDatabase:
         """Loads cards into in-memory dictionaries. Rebuilds SQLite cache if needed."""
         if not self.db_path.exists() or force_rebuild:
             self.build_db(force=True)
+        elif self._cache_is_stale():
+            logger.info("CardDefs XML is newer than cache; rebuilding SQLite cache.")
+            self.build_db(force=True)
 
         self._load_from_sqlite()
+
+    def _cache_is_stale(self) -> bool:
+        """True when any CardDefs XML is newer than the SQLite cache."""
+        if not self.db_path.exists():
+            return True
+        cache_mtime = self.db_path.stat().st_mtime
+        for name in ("CardDefs.base.xml", "CardDefs.ruRU.xml"):
+            xml_path = self.hdt_card_defs_dir / name
+            if xml_path.exists() and xml_path.stat().st_mtime > cache_mtime:
+                return True
+        return False
 
     def _load_from_sqlite(self) -> None:
         """Reads all indexed cards from SQLite database into memory for microsecond lookups."""
@@ -84,11 +108,11 @@ class CardDatabase:
                 attack=row["attack"],
                 health=row["health"],
                 durability=row["durability"],
-                card_type=CardType(row["card_type"]) if row["card_type"] is not None else CardType.MINION,
-                card_class=CardClass(row["card_class"]) if row["card_class"] is not None else CardClass.NEUTRAL,
-                race=Race(row["race"]) if row["race"] is not None else None,
-                spell_school=SpellSchool(row["spell_school"]) if row["spell_school"] is not None else None,
-                rarity=Rarity(row["rarity"]) if row["rarity"] is not None else None,
+                card_type=_safe_enum(CardType, row["card_type"]) or CardType.MINION,
+                card_class=_safe_enum(CardClass, row["card_class"]) or CardClass.NEUTRAL,
+                race=_safe_enum(Race, row["race"]),
+                spell_school=_safe_enum(SpellSchool, row["spell_school"]),
+                rarity=_safe_enum(Rarity, row["rarity"]),
                 text_ru=row["text_ru"] or "",
                 text_en=row["text_en"] or "",
                 mechanics=json.loads(row["mechanics_json"]) if row["mechanics_json"] else [],

@@ -129,3 +129,96 @@ def test_lethal_calculation():
     analysis = coach.analyze_turn(snap, query_llm=False)
     assert analysis.is_lethal_possible is True
     assert any("ЛЕТАЛ" in n for n in analysis.notes)
+
+
+def test_burst_knapsack_not_greedy():
+    """Regression: greedy hand-order spent Arcane Shot (1м/2dmg) before Fireball
+    (4м/6dmg), undercounting burst and missing lethals."""
+    db = CardDatabase()
+    coach = MatchCoach(card_db=db)
+    snap = TurnSnapshot(
+        turn_number=5,
+        active_player_id=1,
+        active_player_name="x",
+        is_friendly_turn=True,
+        friendly_mana=4,
+        friendly_max_mana=4,
+        friendly_hero={"health": 30, "armor": 0, "name": "Mage"},
+        opponent_hero={"health": 8, "armor": 0, "name": "Hunter"},
+        friendly_hand=[
+            # Hand order: cheap shot FIRST — greedy consumes it and can't afford fireball
+            {"card_id": "DS1_185", "name": "Волшебная стрела", "cost": 1, "card_type": 5},
+            {"card_id": "CS2_029", "name": "Огненный шар", "cost": 4, "card_type": 5},
+        ],
+        friendly_board=[],
+        opponent_board=[],
+        friendly_locations=[],
+        opponent_locations=[],
+        friendly_secrets=[],
+        opponent_secrets_count=0,
+        opponent_hand_count=0,
+    )
+    # Exact: Fireball (4м, 6 dmg) — NOT greedy shot-first (2 dmg, fireball unaffordable)
+    assert coach.calculate_max_burst_damage(snap) == 6
+
+
+def test_rush_minion_cannot_hit_face():
+    """Regression: RUSH minions were offered 'Атака в лицо' candidates."""
+    db = CardDatabase()
+    snap = TurnSnapshot(
+        turn_number=4,
+        active_player_id=1,
+        active_player_name="x",
+        is_friendly_turn=True,
+        friendly_mana=4,
+        friendly_max_mana=4,
+        friendly_hero={"health": 30, "armor": 0, "name": "Mage"},
+        opponent_hero={"health": 30, "armor": 0, "name": "Hunter"},
+        friendly_hand=[],
+        friendly_board=[
+            # Rush minion: ready but face-forbidden
+            {"entity_id": 10, "name": "Рывок", "attack": 3, "health": 3, "can_attack": True, "can_attack_hero": False},
+        ],
+        opponent_board=[],
+        friendly_locations=[],
+        opponent_locations=[],
+        friendly_secrets=[],
+        opponent_secrets_count=0,
+        opponent_hand_count=0,
+    )
+    candidates = generate_legal_candidates(snap, db)
+    face_attacks = [c for c in candidates if "Атака в лицо" in c.description]
+    assert len(face_attacks) == 0
+
+
+def test_stealthed_enemies_not_attackable():
+    """Regression: stealthed/dormant enemy minions were offered as targets."""
+    db = CardDatabase()
+    snap = TurnSnapshot(
+        turn_number=4,
+        active_player_id=1,
+        active_player_name="x",
+        is_friendly_turn=True,
+        friendly_mana=4,
+        friendly_max_mana=4,
+        friendly_hero={"health": 30, "armor": 0, "name": "Mage"},
+        opponent_hero={"health": 30, "armor": 0, "name": "Hunter"},
+        friendly_hand=[],
+        friendly_board=[
+            {"entity_id": 10, "name": "Атакующий", "attack": 2, "health": 2, "can_attack": True},
+        ],
+        opponent_board=[
+            {"entity_id": 20, "name": "Маскировщик", "attack": 1, "health": 1, "is_stealthed": True},
+            {"entity_id": 21, "name": "Спящий", "attack": 1, "health": 5, "is_dormant": True},
+        ],
+        friendly_locations=[],
+        opponent_locations=[],
+        friendly_secrets=[],
+        opponent_secrets_count=0,
+        opponent_hand_count=0,
+    )
+    candidates = generate_legal_candidates(snap, db)
+    # No minion attack targets (all stealthed/dormant) — only face attack (+ hero power) remain
+    assert not any(c.action_type == "ATTACK" and "Атака в лицо" not in c.description for c in candidates)
+    assert not any("Маскировщик" in (c.description or "") for c in candidates)
+    assert not any("Спящий" in (c.description or "") for c in candidates)

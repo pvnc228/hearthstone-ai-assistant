@@ -12,11 +12,9 @@ from src.llm import OllamaClient, generate_legal_candidates, parse_model_respons
 from src.parser import DEFAULT_REPLAY_DIR, load_deck_stats_index, parse_replay_file
 from src.coach.analyzer import MatchCoach
 
-OUTPUT_FILE = Path("data/full_game_simulation.md")
-OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
 
 def run_full_game_simulation():
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     card_db = CardDatabase(auto_load=True)
     client = OllamaClient(model="qwen2.5:1.5b-instruct-q8_0")
     coach = MatchCoach(card_db=card_db, ollama_client=client)
@@ -52,17 +50,26 @@ def run_full_game_simulation():
     lines.append("---\n")
 
     for idx, snap in enumerate(target_replay.friendly_turns, start=1):
-        candidates = generate_legal_candidates(snap, card_db)
-        prompt = coach.build_llm_prompt(snap, candidates)
-        
-        t0 = time.time()
-        raw_resp = client.generate(prompt=prompt, temperature=0.1, max_tokens=250)
-        latency = time.time() - t0
-        
-        parsed = parse_model_response(raw_resp, candidates, max_mana=snap.friendly_mana)
-        burst = coach.calculate_max_burst_damage(snap)
-        opp_hp = snap.opponent_hero.get("health", 30) + snap.opponent_hero.get("armor", 0)
-        is_lethal = (burst >= opp_hp)
+        try:
+            candidates = generate_legal_candidates(snap, card_db)
+            prompt = coach.build_llm_prompt(snap, candidates)
+
+            t0 = time.time()
+            raw_resp = client.generate(prompt=prompt, temperature=0.1, max_tokens=250)
+            latency = time.time() - t0
+
+            parsed = parse_model_response(raw_resp, candidates, max_mana=snap.friendly_mana)
+            burst = coach.calculate_max_burst_damage(snap)
+            opp_hp = snap.opponent_hero.get("health", 30) + snap.opponent_hero.get("armor", 0)
+            is_lethal = (burst >= opp_hp)
+        except Exception as e:
+            # One bad turn (e.g. Ollama hiccup) must not kill the whole run
+            import logging
+            logging.getLogger(__name__).warning("Turn %s failed: %s", getattr(snap, "turn_number", idx), e)
+            lines.append(f"## 🎮 Ход {getattr(snap, 'turn_number', idx)} — ОШИБКА: {e}\n")
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            continue
 
         print(f"Processing Turn {snap.turn_number} (Mana: {snap.friendly_mana}/{snap.friendly_max_mana}, Latency: {latency:.2f}s)...")
 
@@ -108,9 +115,9 @@ def run_full_game_simulation():
             lines.append("• (Нет действий / пропуск)")
         lines.append("```\n")
         lines.append("---\n")
-
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+        # Incremental write: results survive interruption
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
 
     print(f"\nFull game simulation complete and saved to {OUTPUT_FILE}!")
 

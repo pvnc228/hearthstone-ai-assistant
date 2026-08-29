@@ -67,7 +67,10 @@ class Entity:
 
     @property
     def cost(self) -> int:
-        return self.get_tag("COST", 0)
+        # ponytail: EXHAUSTED-as-cost hack removed; live COST tag is authoritative, DB lookup only when absent
+        if "COST" in self.tags:
+            return self.get_tag("COST", 0)
+        return -1  # sentinel: caller falls back to CardDefs cost
 
     @property
     def attack(self) -> int:
@@ -141,6 +144,15 @@ class Entity:
             return False
         return not self.is_exhausted or self.get_tag("CHARGE", 0) == 1 or self.get_tag("RUSH", 0) == 1
 
+    @property
+    def can_attack_hero(self) -> bool:
+        """RUSH minions can only attack minions, never the enemy hero."""
+        return self.can_attack and self.get_tag("RUSH", 0) != 1
+
+    @property
+    def num_attacks_this_turn(self) -> int:
+        return self.get_tag("NUM_ATTACKS_THIS_TURN", 0)
+
 
 @dataclass
 class PlayerState:
@@ -160,7 +172,6 @@ class PlayerState:
     @property
     def mana_available(self) -> int:
         return max(0, (self.resources + self.temp_resources) - self.resources_used)
-
 
 @dataclass
 class PlayerAction:
@@ -191,6 +202,8 @@ class TurnSnapshot:
     friendly_secrets: List[str]
     opponent_secrets_count: int
     opponent_hand_count: int
+    hero_power: Dict[str, Any] = field(default_factory=dict)
+    game_ended: bool = False
     actions: List[PlayerAction] = field(default_factory=list)
 
 
@@ -217,6 +230,7 @@ class GameStateTracker:
         self.turn_snapshots: List[TurnSnapshot] = []
         self._current_snapshot: Optional[TurnSnapshot] = None
         self._actions_this_turn: List[PlayerAction] = []
+        self._pending_turn_transition: bool = False
 
     def get_or_create_entity(self, entity_id: int) -> Entity:
         if entity_id not in self.entities:
@@ -250,6 +264,9 @@ class GameStateTracker:
             self.player_id_by_name = {"GameEntity": 1}
             self.current_turn = 0
             self.game_over = False
+            self._pending_turn_transition = False
+            self._current_snapshot = None
+            self._actions_this_turn.clear()
 
         elif etype == "GAME_ENTITY":
             self.game_entity_id = data.get("entity_id", 1)
@@ -298,6 +315,7 @@ class GameStateTracker:
                         ent.name = card_info.name_ru or card_info.name_en
                         if "CARDTYPE" not in ent.tags:
                             ent.tags["CARDTYPE"] = int(card_info.card_type)
+                self._refresh_unresolved_actions(eid, ent)
 
         elif etype == "TAG":
             eid = data["entity_id"]
@@ -349,9 +367,24 @@ class GameStateTracker:
                 self.players[pid].entity_id = ent.entity_id
 
         elif tag == "HERO_ENTITY":
+            hp_val = int(val) if isinstance(val, int) or (isinstance(val, str) and val.isdigit()) else None
             for p in self.players.values():
                 if p.entity_id == ent.entity_id or ent.tags.get("PLAYER_ID") == p.player_id:
-                    p.hero_entity_id = int(val) if isinstance(val, int) or (isinstance(val, str) and val.isdigit()) else None
+                    p.hero_entity_id = hp_val
+
+        elif tag == "HERO_POWER_ENTITY":
+            hp_val = int(val) if isinstance(val, int) or (isinstance(val, str) and val.isdigit()) else None
+            for p in self.players.values():
+                if p.entity_id == ent.entity_id or ent.tags.get("PLAYER_ID") == p.player_id:
+                    p.hero_power_entity_id = hp_val
+
+        elif tag == "PLAYSTATE":
+            ps_val = str(val)
+            if ps_val in ("WON", "LOST", "CONCEDED", "TIED"):
+                for p in self.players.values():
+                    if p.entity_id == ent.entity_id:
+                        p.playstate = ps_val
+                self.game_over = True
 
         elif tag == "RESOURCES":
             for p in self.players.values():
@@ -369,38 +402,56 @@ class GameStateTracker:
                     p.temp_resources = int(val) if isinstance(val, int) or (isinstance(val, str) and val.isdigit()) else 0
 
         elif tag == "CURRENT_PLAYER" and str(val) == "1":
-            pid = ent.tags.get("PLAYER_ID") or ent.entity_id
-            for p in self.players.values():
-                if p.entity_id == ent.entity_id or p.player_id == pid:
-                    if self.active_player_id != p.player_id:
-                        self.active_player_id = p.player_id
-                        self._on_turn_or_player_transition()
+            # Resolve the player via their PLAYER_ID tag; fall back to entity_id only
+            # when it matches a registered player (entity ids 2/3 collide with pids 2/3 otherwise).
+            pid = ent.tags.get("PLAYER_ID")
+            if pid is None and ent.entity_id in self.players:
+                pid = ent.entity_id
+            if pid in self.players and self.active_player_id != pid:
+                self.active_player_id = pid
+                self._on_turn_or_player_transition()
 
         elif tag == "TURN" and ent.entity_id == self.game_entity_id:
             new_turn = int(val) if isinstance(val, int) or (isinstance(val, str) and val.isdigit()) else 0
             if new_turn != self.current_turn:
                 self.current_turn = new_turn
-                self._on_turn_or_player_transition()
+                self._pending_turn_transition = True
 
-        elif tag == "STEP" and str(val) == "MAIN_ACTION" and ent.entity_id == self.game_entity_id:
-            # Refresh snapshot state now that turn draw and mana refresh have resolved
-            if self._current_snapshot and not self._actions_this_turn:
-                refreshed = self.take_turn_snapshot()
-                self._current_snapshot.friendly_mana = refreshed.friendly_mana
-                self._current_snapshot.friendly_max_mana = refreshed.friendly_max_mana
-                self._current_snapshot.friendly_hand = refreshed.friendly_hand
-                self._current_snapshot.friendly_board = refreshed.friendly_board
-                self._current_snapshot.opponent_board = refreshed.opponent_board
-                self._current_snapshot.friendly_hero = refreshed.friendly_hero
-                self._current_snapshot.opponent_hero = refreshed.opponent_hero
-
-        elif tag == "PLAYSTATE" and val in ("WON", "LOST", "CONCEDED"):
-            self.game_over = True
+        elif tag == "STEP" and ent.entity_id == self.game_entity_id:
+            step_name = str(val)
+            if step_name == "MAIN_ACTION":
+                # A new turn officially starts at MAIN_ACTION: turn draw / mana
+                # refresh have resolved, so the snapshot reflects reality.
+                if self._pending_turn_transition:
+                    self._pending_turn_transition = False
+                    self._on_turn_or_player_transition()
+                elif self._current_snapshot and not self._actions_this_turn:
+                    # Same turn re-sync (e.g. after a stolen extra turn): refresh mutable fields.
+                    refreshed = self.take_turn_snapshot()
+                    self._current_snapshot.friendly_mana = refreshed.friendly_mana
+                    self._current_snapshot.friendly_max_mana = refreshed.friendly_max_mana
+                    self._current_snapshot.friendly_hand = refreshed.friendly_hand
+                    self._current_snapshot.friendly_board = refreshed.friendly_board
+                    self._current_snapshot.opponent_board = refreshed.opponent_board
+                    self._current_snapshot.friendly_locations = refreshed.friendly_locations
+                    self._current_snapshot.opponent_locations = refreshed.opponent_locations
+                    self._current_snapshot.opponent_hand_count = refreshed.opponent_hand_count
+                    self._current_snapshot.opponent_secrets_count = refreshed.opponent_secrets_count
+                    self._current_snapshot.friendly_hero = refreshed.friendly_hero
+                    self._current_snapshot.opponent_hero = refreshed.opponent_hero
 
     def _on_turn_or_player_transition(self) -> None:
         """Captures turn snapshot when turn or active player starts."""
         if self.current_turn < 1:
             return
+
+        # Dedupe: don't re-snapshot if a snapshot for this (turn, active player) already exists.
+        if self._current_snapshot is not None:
+            if (
+                self._current_snapshot.turn_number == self._player_turn_number()
+                and self._current_snapshot.active_player_id == self.active_player_id
+            ):
+                return
 
         if self._current_snapshot and self._actions_this_turn:
             self._current_snapshot.actions = list(self._actions_this_turn)
@@ -453,7 +504,7 @@ class GameStateTracker:
                 entity_card_id=ent_card_id,
                 target_name=target_name,
                 target_card_id=target_card_id,
-                details={"sub_option": data.get("sub_option", -1)},
+                details={"sub_option": data.get("sub_option", -1), "_entity_id": eid, "_target_entity_id": target_eid},
             )
             self._actions_this_turn.append(action)
 
@@ -465,6 +516,7 @@ class GameStateTracker:
                 entity_card_id=ent_card_id,
                 target_name=target_name or "Target",
                 target_card_id=target_card_id,
+                details={"_entity_id": eid, "_target_entity_id": target_eid},
             )
             self._actions_this_turn.append(action)
 
@@ -473,6 +525,29 @@ class GameStateTracker:
         if self._current_snapshot and self._actions_this_turn:
             self._current_snapshot.actions = list(self._actions_this_turn)
             self._actions_this_turn.clear()
+
+    def _refresh_unresolved_actions(self, entity_id: int, ent: Entity) -> None:
+        """Backfills names of actions recorded before SHOW_ENTITY revealed the card
+        (opponent plays are logged as 'UNKNOWN ENTITY' until mid-block)."""
+        if not ent.name and not ent.card_id:
+            return
+        action_groups = [snap.actions for snap in self.turn_snapshots] + [self._actions_this_turn]
+        for actions in action_groups:
+            for act in actions:
+                if act.entity_card_id == "" and act.details.get("_entity_id") == entity_id:
+                    act.entity_name = ent.name or act.entity_name
+                    act.entity_card_id = ent.card_id or act.entity_card_id
+                if act.target_card_id == "" and act.target_name and act.details.get("_target_entity_id") == entity_id:
+                    act.target_name = ent.name or act.target_name
+                    act.target_card_id = ent.card_id or act.target_card_id
+
+    def _player_turn_number(self) -> int:
+        """Player-perceived turn number (each player counts their own turns)."""
+        if self.active_player_id == 1:
+            n = (self.current_turn + 1) // 2
+        else:
+            n = self.current_turn // 2
+        return max(1, n)
 
     def take_turn_snapshot(self) -> TurnSnapshot:
         """Constructs an immutable TurnSnapshot of the current board and hand."""
@@ -522,12 +597,15 @@ class GameStateTracker:
             if ent.zone == "HAND":
                 if ent.controller == f_pid:
                     name = ent.name or (c_info.name_ru if c_info else "Неизвестная карта")
+                    live_cost = ent.cost
+                    db_cost = c_info.cost if c_info else 0
+                    cost = db_cost if live_cost < 0 else live_cost
                     friendly_hand.append(
                         {
                             "entity_id": ent.entity_id,
                             "card_id": ent.card_id,
                             "name": name,
-                            "cost": ent.cost or (c_info.cost if c_info else 0),
+                            "cost": cost,
                             "attack": ent.attack if c_type == 4 else None,
                             "health": ent.health if c_type == 4 else None,
                             "card_type": c_type,
@@ -548,6 +626,8 @@ class GameStateTracker:
                         "health": ent.health,
                         "max_health": ent.max_health,
                         "can_attack": ent.can_attack,
+                        "can_attack_hero": ent.can_attack_hero,
+                        "attacks_used": ent.num_attacks_this_turn,
                         "is_taunt": ent.is_taunt,
                         "is_divine_shield": ent.is_divine_shield,
                         "is_stealthed": ent.is_stealthed,
@@ -587,14 +667,21 @@ class GameStateTracker:
         active_name = active_player.name if active_player else f"Player {self.active_player_id}"
 
         # Player turn number in standard game convention (Turn 1, Turn 2, etc.)
-        player_turn_num = (self.current_turn + 1) // 2 if self.active_player_id == 1 else self.current_turn // 2
-        if player_turn_num < 1:
-            player_turn_num = 1
+        player_turn_num = self._player_turn_number()
 
         f_max = f_player.resources + f_player.temp_resources
         if f_max <= 0:
             f_max = min(10, player_turn_num)
         f_avail = max(0, f_max - f_player.resources_used)
+
+        # Hero power availability: entity exists, not exhausted, and 2 mana free is checked by caller
+        f_hp_ent = self.entities.get(f_player.hero_power_entity_id or 0)
+        hero_power_info = {
+            "entity_id": f_player.hero_power_entity_id or 0,
+            "card_id": f_hp_ent.card_id if f_hp_ent else "",
+            "name": f_hp_ent.name if f_hp_ent else "",
+            "exhausted": bool(f_hp_ent.is_exhausted) if f_hp_ent else True,
+        }
 
         return TurnSnapshot(
             turn_number=player_turn_num,
@@ -605,6 +692,7 @@ class GameStateTracker:
             friendly_max_mana=f_max,
             friendly_hero=f_hero_info,
             opponent_hero=o_hero_info,
+            hero_power=hero_power_info,
             friendly_hand=friendly_hand,
             friendly_board=friendly_board,
             opponent_board=opponent_board,
@@ -613,4 +701,5 @@ class GameStateTracker:
             friendly_secrets=friendly_secrets,
             opponent_secrets_count=opponent_secrets_count,
             opponent_hand_count=opponent_hand_count,
+            game_ended=self.game_over,
         )

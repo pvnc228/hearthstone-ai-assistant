@@ -65,6 +65,87 @@ def test_parse_power_log_events():
     assert events[8].data["entity"]["id"] == 71
 
 
+def test_block_start_real_world_formats():
+    """Regression: real Power.log BLOCK_START lines (with Target, nested brackets, TAG_NOT_SET)."""
+    lines = [
+        # Target as bracketed entity + trailing TriggerKeyword=TAG_NOT_SET
+        "D 13:40:12.1234567 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=Монетка id=71 zone=HAND cardId=ETC_COIN1 player=1] EffectCardId= EffectIndex=-1 Target=[entityName=Герой id=64 zone=PLAY zonePos=0 cardId=HERO_08 player=2] SubOption=-1 TriggerKeyword=TAG_NOT_SET",
+        # Target=0 (no target) — must parse entity, target resolves to id 0
+        "D 13:40:12.1234567 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=[entityName=Огненный шар id=18 zone=HAND cardId=CS2_029 player=1] EffectCardId= EffectIndex=-1 Target=0 SubOption=-1 TriggerKeyword=TAG_NOT_SET",
+        # Nested brackets inside entityName (UNKNOWN ENTITY [cardType=INVALID])
+        "D 13:58:48.8491185 GameState.DebugPrintPower() - BLOCK_START BlockType=TRIGGER Entity=[entityName=UNKNOWN ENTITY [cardType=INVALID] id=10 zone=DECK zonePos=0 cardId= player=2] EffectCardId=System.Collections.Generic.List`1[System.String] EffectIndex=-1 Target=0 SubOption=-1 TriggerKeyword=TAG_NOT_SET",
+        # Player name refs
+        "D 13:40:12.1234567 GameState.DebugPrintPower() - BLOCK_START BlockType=PLAY Entity=HappyBread#21597 EffectCardId= EffectIndex=-1 Target=Enemy#1234 SubOption=-1 TriggerKeyword=TAG_NOT_SET",
+    ]
+
+    events = [e for e in parse_power_log_lines(lines) if e.event_type == "BLOCK_START"]
+    assert len(events) == 4
+
+    e0 = events[0].data
+    assert e0["entity"]["id"] == 71
+    assert e0["target"]["id"] == 64
+    assert e0["sub_option"] == -1
+
+    e1 = events[1].data
+    assert e1["entity"]["id"] == 18
+    assert e1["target"].get("id") == 0  # explicit no-target
+
+    e2 = events[2].data
+    assert e2["entity"]["id"] == 10  # nested brackets don't break id extraction
+    assert e2["entity"]["entityName"] == "UNKNOWN ENTITY [cardType=INVALID]"
+
+    e3 = events[3].data
+    assert e3["entity"]["name"] == "HappyBread#21597"
+    assert e3["target"]["name"] == "Enemy#1234"
+
+
+def test_snapshot_dedup_and_actions_resolution():
+    """Regression: TURN+CURRENT_PLAYER produced duplicate snapshots; opponent
+    plays stayed 'UNKNOWN ENTITY' because SHOW_ENTITY resolves mid-block."""
+    from src.card_db import CardDatabase
+    from src.parser import GameStateTracker
+
+    def ev(etype, **data):
+        return type("E", (), {"event_type": etype, "data": data, "raw_line": ""})()
+
+    db = CardDatabase(auto_load=True)
+    tracker = GameStateTracker(card_db=db, friendly_player_name="HappyBread#21597")
+    tracker.process_event(ev("CREATE_GAME"))
+    tracker.process_event(ev("GAME_ENTITY", entity_id=1))
+    tracker.process_event(ev("PLAYER_ENTITY", entity_id=2, player_id=1))
+    tracker.process_event(ev("PLAYER_ENTITY", entity_id=3, player_id=2))
+    tracker.process_event(ev("PLAYER_NAME", player_id=1, player_name="HappyBread#21597"))
+    tracker.process_event(ev("PLAYER_NAME", player_id=2, player_name="Enemy#1234"))
+
+    # Realistic ordering: TURN tag, then CURRENT_PLAYER, then STEP=MAIN_ACTION
+    tracker.process_event(ev("TAG_CHANGE", entity={"id": 1}, tag="TURN", value="1"))
+    tracker.process_event(ev("TAG_CHANGE", entity={"name": "HappyBread#21597"}, tag="CURRENT_PLAYER", value="1"))
+    tracker.process_event(ev("TAG_CHANGE", entity={"id": 1}, tag="STEP", value="MAIN_ACTION"))
+
+    # TURN alone must not create a snapshot; only STEP=MAIN_ACTION does,
+    # and CURRENT_PLAYER + TURN must not produce duplicate snapshots.
+    nums = [s.turn_number for s in tracker.turn_snapshots]
+    assert nums.count(1) == 1
+
+    # SHOW_ENTITY backfill: play recorded as UNKNOWN, card revealed mid-block
+    tracker.process_event(
+        ev(
+            "BLOCK_START",
+            block_type="PLAY",
+            entity={"id": 43},
+            target={"id": 0},
+            sub_option=-1,
+        )
+    )
+    tracker.process_event(ev("SHOW_ENTITY", entity={"id": 43}, card_id="CS2_029"))
+
+    tracker.finalize()
+    acts = [a for s in tracker.turn_snapshots for a in s.actions]
+    assert len(acts) == 1
+    assert acts[0].entity_card_id == "CS2_029"
+    assert acts[0].entity_name == "Огненный шар"
+
+
 def test_deck_stats_index():
     stats = load_deck_stats_index()
     if not stats:

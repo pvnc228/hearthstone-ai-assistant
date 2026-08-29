@@ -4,7 +4,7 @@ Generates numbered legal actions (plays, attacks, hero power, locations)
 strictly validated against current mana, board state, and Taunt rules.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.card_db import CardDatabase, CardType
@@ -21,6 +21,7 @@ class ActionCandidate:
     target_name: Optional[str] = None
     target_card_id: Optional[str] = None
     target_entity_id: Optional[int] = None
+    details: Dict[str, Any] = field(default_factory=dict)
     description: str = ""
 
     def __str__(self) -> str:
@@ -39,62 +40,75 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
     candidates: List[ActionCandidate] = []
     idx = 1
     mana = snapshot.friendly_mana
+    board_full = len(snapshot.friendly_board) >= 10
 
     # 1. Physical Attacks from Board Minions
-    # Check enemy Taunts
-    enemy_taunts = [m for m in snapshot.opponent_board if m.get("is_taunt") and not m.get("is_stealthed") and not m.get("is_dormant")]
-    valid_attack_targets = enemy_taunts if enemy_taunts else snapshot.opponent_board
+    # Only minions that can actually be attacked: no stealth, not dormant
+    attackable_minions = [
+        m for m in snapshot.opponent_board
+        if not m.get("is_stealthed") and not m.get("is_dormant")
+    ]
+    # Taunts force targets among themselves
+    enemy_taunts = [m for m in attackable_minions if m.get("is_taunt")]
+    valid_attack_targets = enemy_taunts if enemy_taunts else attackable_minions
 
     for minion in snapshot.friendly_board:
-        if minion.get("can_attack") and minion.get("attack", 0) > 0:
-            m_name = minion.get("name", "Существо")
-            m_atk = minion.get("attack", 0)
-            m_hp = minion.get("health", 0)
+        if not minion.get("can_attack") or minion.get("attack", 0) <= 0:
+            continue
+        m_name = minion.get("name", "Существо")
+        m_atk = minion.get("attack", 0)
+        m_hp = minion.get("health", 0)
+        m_eid = minion.get("entity_id")
 
-            # Attack enemy minions
-            for target in valid_attack_targets:
-                t_name = target.get("name", "Вражеское существо")
-                t_atk = target.get("attack", 0)
-                t_hp = target.get("health", 0)
-                taunt_flag = " [Провокация]" if target.get("is_taunt") else ""
+        # Rush minions can only attack minions, never the hero
+        can_hit_face = minion.get("can_attack_hero", True)
 
-                desc = f"Атака: {m_name} ({m_atk}/{m_hp}) -> {t_name} ({t_atk}/{t_hp}){taunt_flag}"
-                candidates.append(
-                    ActionCandidate(
-                        index=idx,
-                        action_type="ATTACK",
-                        entity_name=m_name,
-                        entity_card_id=minion.get("card_id", ""),
-                        mana_cost=0,
-                        target_name=t_name,
-                        target_card_id=target.get("card_id", ""),
-                        target_entity_id=target.get("entity_id"),
-                        description=desc,
-                    )
+        # Attack enemy minions
+        for target in valid_attack_targets:
+            t_name = target.get("name", "Вражеское существо")
+            t_atk = target.get("attack", 0)
+            t_hp = target.get("health", 0)
+            taunt_flag = " [Провокация]" if target.get("is_taunt") else ""
+
+            desc = f"Атака: {m_name} ({m_atk}/{m_hp}) -> {t_name} ({t_atk}/{t_hp}){taunt_flag}"
+            candidates.append(
+                ActionCandidate(
+                    index=idx,
+                    action_type="ATTACK",
+                    entity_name=m_name,
+                    entity_card_id=minion.get("card_id", ""),
+                    mana_cost=0,
+                    target_name=t_name,
+                    target_card_id=target.get("card_id", ""),
+                    target_entity_id=target.get("entity_id"),
+                    description=desc,
                 )
-                idx += 1
+            )
+            idx += 1
 
-            # Attack enemy hero if no Taunts blocking
-            if not enemy_taunts:
-                opp_hero = snapshot.opponent_hero
-                opp_hp = opp_hero.get("health", 30)
-                opp_armor = opp_hero.get("armor", 0)
-                armor_str = f"+{opp_armor}" if opp_armor else ""
-                desc = f"Атака в лицо: {m_name} ({m_atk}/{m_hp}) -> Герой противника ({opp_hp}{armor_str} HP)"
+        # Attack enemy hero if no Taunts blocking and minion isn't Rush-only
+        if can_hit_face and not enemy_taunts:
+            opp_hero = snapshot.opponent_hero
+            opp_hp = opp_hero.get("health", 30)
+            opp_armor = opp_hero.get("armor", 0)
+            armor_str = f"+{opp_armor}" if opp_armor else ""
+            desc = f"Атака в лицо: {m_name} ({m_atk}/{m_hp}) -> Герой противника ({opp_hp}{armor_str} HP)"
 
-                candidates.append(
-                    ActionCandidate(
-                        index=idx,
-                        action_type="ATTACK",
-                        entity_name=m_name,
-                        entity_card_id=minion.get("card_id", ""),
-                        mana_cost=0,
-                        target_name=opp_hero.get("name", "Герой противника"),
-                        target_card_id=opp_hero.get("card_id", ""),
-                        description=desc,
-                    )
+            candidates.append(
+                ActionCandidate(
+                    index=idx,
+                    action_type="ATTACK",
+                    entity_name=m_name,
+                    entity_card_id=minion.get("card_id", ""),
+                    mana_cost=0,
+                    target_name=opp_hero.get("name", "Герой противника"),
+                    target_card_id=opp_hero.get("card_id", ""),
+                    target_entity_id=0,  # 0 = enemy hero
+                    details={"attacker_entity_id": m_eid},
+                    description=desc,
                 )
-                idx += 1
+            )
+            idx += 1
 
     # 2. Playable Cards from Hand
     for card_data in snapshot.friendly_hand:
@@ -110,6 +124,8 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
 
         # Non-targeted minions / weapons / secrets
         if c_type in (CardType.MINION, CardType.WEAPON, CardType.ENCHANTMENT) or not c_info:
+            if c_type == CardType.MINION and board_full:
+                continue  # board full (10 minions) — cannot play more minions
             atk = card_data.get("attack") or (c_info.attack if c_info else None)
             hp = card_data.get("health") or (c_info.health if c_info else None)
             stats = f" {atk}/{hp}" if atk is not None and hp is not None else ""
@@ -164,17 +180,20 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                 )
                 idx += 1
 
-    # 3. Hero Power
-    if mana >= 2:
-        hero_power_name = "Сила героя"
-        desc_hp = f"Сила героя (2м)"
+    # 3. Hero Power — only if the power entity exists and is not exhausted this turn
+    hp_info = snapshot.hero_power or {}
+    hp_used = hp_info.get("exhausted", False)
+    if mana >= 2 and not hp_used:
+        hero_power_name = hp_info.get("name") or "Сила героя"
+        desc_hp = f"Сила героя: {hero_power_name} (2м)"
         candidates.append(
             ActionCandidate(
                 index=idx,
                 action_type="HERO_POWER",
                 entity_name=hero_power_name,
-                entity_card_id="",
+                entity_card_id=hp_info.get("card_id", ""),
                 mana_cost=2,
+                target_entity_id=None,
                 description=desc_hp,
             )
         )

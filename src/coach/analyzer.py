@@ -4,12 +4,30 @@ Evaluates played matches, detects missed lethal damage, tempo inefficiencies,
 and generates step-by-step coaching reports with local LLM recommendations.
 """
 
+import logging
 from dataclasses import dataclass, field
+from itertools import combinations
 from typing import Any, Dict, List, Optional
 
 from src.card_db import CardDatabase
 from src.llm import ActionCandidate, OllamaClient, ParsedPlan, generate_legal_candidates, parse_model_response
 from src.parser import GameReplay, PlayerAction, TurnSnapshot
+
+logger = logging.getLogger(__name__)
+
+# Known direct-damage spells: card_id -> face damage
+# (Arcane Missiles counted optimistically — its damage is randomly distributed)
+BURST_SPELLS: Dict[str, int] = {
+    "CS2_029": 6,       # Fireball
+    "CORE_CS2_029": 6,
+    "CS2_024": 3,       # Frostbolt
+    "CORE_CS2_024": 3,
+    "DS1_185": 2,       # Arcane Shot
+    "CORE_DS1_185": 2,
+    "EX1_277": 3,       # Arcane Missiles
+    "CORE_EX1_277": 3,
+}
+LEEROY_IDS = {"EX1_116", "CORE_EX1_116"}  # 6 dmg face, blocked by Taunt
 
 
 @dataclass
@@ -59,52 +77,54 @@ class MatchCoach:
 
     def calculate_max_burst_damage(self, snapshot: TurnSnapshot) -> int:
         """
-        Calculates maximum possible burst damage directly to the opponent's face on this turn.
+        Calculates maximum possible burst damage directly to the opponent's face this turn.
+        Exact small-scale knapsack over damage spells (not greedy), plus ready minion
+        attacks (RUSH minions excluded — they cannot hit face).
         """
-        damage = 0
-
-        # Check for enemy Taunt
         has_taunt = any(
             m.get("is_taunt") and not m.get("is_stealthed") and not m.get("is_dormant")
             for m in snapshot.opponent_board
         )
 
-        # Minion attacks (only if no Taunt)
+        # 1. Minion attacks to face (only if no Taunt; rush minions can't hit face)
+        minion_damage = 0
         if not has_taunt:
             for m in snapshot.friendly_board:
-                if m.get("can_attack"):
-                    damage += m.get("attack", 0)
+                can_face = m.get("can_attack_hero", m.get("can_attack", False))
+                if can_face:
+                    minion_damage += m.get("attack", 0)
 
-        # Spells and Charge from hand within mana limit
-        mana_left = snapshot.friendly_mana
-        # Simple burst spell lookups
+        # 2. Damage spells from hand: exact knapsack over (cost, damage) options
+        spell_options = []
         for card_data in snapshot.friendly_hand:
             cid = card_data.get("card_id", "")
             cost = card_data.get("cost", 0)
-            if cost <= mana_left:
-                c_info = self.card_db.get_by_id(cid)
-                if c_info:
-                    # Known common burst spells
-                    if cid in ("CS2_029", "CORE_CS2_029"):  # Fireball (6)
-                        damage += 6
-                        mana_left -= cost
-                    elif cid in ("CS2_024", "CORE_CS2_024"):  # Frostbolt (3)
-                        damage += 3
-                        mana_left -= cost
-                    elif cid in ("EX1_277", "CORE_EX1_277"):  # Arcane Missiles (3)
-                        damage += 3
-                        mana_left -= cost
-                    elif cid in ("EX1_116", "CORE_EX1_116") and not has_taunt:  # Leeroy (6)
-                        damage += 6
-                        mana_left -= cost
-                    elif cid in ("DS1_185", "CORE_DS1_185"):  # Arcane Shot (2)
-                        damage += 2
-                        mana_left -= cost
-                    elif cid in ("CS2_087", "CORE_CS2_087"):  # Blessing of Might (+3)
-                        damage += 3
-                        mana_left -= cost
+            if cost > snapshot.friendly_mana:
+                continue
+            if cid in BURST_SPELLS:
+                spell_options.append((cost, BURST_SPELLS[cid]))
+            elif cid in LEEROY_IDS and not has_taunt:
+                spell_options.append((cost, 6))
 
-        return damage
+        best_spell_damage = self._max_damage_within_mana(spell_options, snapshot.friendly_mana)
+
+        return minion_damage + best_spell_damage
+
+    @staticmethod
+    def _max_damage_within_mana(options: List[tuple], mana: int) -> int:
+        """Exact max damage achievable within mana budget (small n -> combinations)."""
+        if not options:
+            return 0
+        best = 0
+        n = len(options)
+        for r in range(1, n + 1):
+            for combo in combinations(options, r):
+                total_cost = sum(c for c, _ in combo)
+                if total_cost <= mana:
+                    total_dmg = sum(d for _, d in combo)
+                    if total_dmg > best:
+                        best = total_dmg
+        return best
 
     def build_llm_prompt(self, snapshot: TurnSnapshot, candidates: List[ActionCandidate]) -> str:
         """
@@ -140,17 +160,24 @@ class MatchCoach:
         burst = self.calculate_max_burst_damage(snapshot)
         is_lethal = (burst >= opp_total_hp)
 
-        # 2. Check Mana Tempo Loss
-        # If player had 2+ unspent mana and unplayed on-curve minions in hand
+        # 2. Check Mana Tempo Loss (player passed the turn with unspent mana)
         actual_actions_str = []
         actual_mana_spent = 0
         for act in snapshot.actions:
-            target = f" -> {act.target_name}" if act.target_name else ""
+            target = f" -> {act.target_name}" if act.target_name and act.target_name != "Target" else ""
             actual_actions_str.append(f"{act.action_type}: {act.entity_name}{target}")
+            if act.action_type in ("PLAY", "HERO_POWER"):
+                c_info = self.card_db.get_by_id(act.entity_card_id) if act.entity_card_id else None
+                actual_mana_spent += c_info.cost if c_info else 0
 
-        tempo_loss = False
-        if snapshot.friendly_mana >= 2 and len(snapshot.friendly_hand) > 0 and len(snapshot.actions) == 0:
-            tempo_loss = True
+        # Mana actually spent according to the log's own accounting (RESOURCES delta
+        # is captured in the tracker); approximate with mana at snapshot vs after actions.
+        tempo_loss = (
+            snapshot.is_friendly_turn
+            and snapshot.friendly_mana >= 2
+            and len(snapshot.actions) == 0
+            and not snapshot.game_ended
+        )
 
         # 3. Query LLM for recommendation
         ai_actions: List[str] = []
@@ -168,7 +195,6 @@ class MatchCoach:
                 parsed = parse_model_response("", candidates, max_mana=snapshot.friendly_mana)
                 ai_actions = parsed.action_descriptions
                 ai_reasoning = "Эвристический план (LLM оффлайн)"
-
         notes = []
         if is_lethal:
             notes.append(f"💥 ВНИМАНИЕ: На этом ходу был возможен ЛЕТАЛ ({burst} урона при {opp_total_hp} HP врага)!")
@@ -198,10 +224,15 @@ class MatchCoach:
         missed_lethals = 0
         tempo_losses = 0
 
-        for snapshot in replay.friendly_turns:
+        friendly_turns = replay.friendly_turns
+        for i, snapshot in enumerate(friendly_turns):
             analysis = self.analyze_turn(snapshot, query_llm=query_llm)
             turn_analyses.append(analysis)
-            if analysis.is_lethal_possible:
+
+            # Suppress "missed lethal" when the player actually won on/before this turn
+            # (they executed the lethal) or the game was already over.
+            won_this_or_earlier = meta.result == "Win" and i >= len(friendly_turns) - 1
+            if analysis.is_lethal_possible and not won_this_or_earlier and not snapshot.game_ended:
                 missed_lethals += 1
             if analysis.tempo_loss:
                 tempo_losses += 1

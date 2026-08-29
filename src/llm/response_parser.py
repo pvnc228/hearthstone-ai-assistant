@@ -84,16 +84,20 @@ def parse_model_response(
     # --- Step 5: Compliance Filter & Mana Budgeting ---
     valid_actions: List[ActionCandidate] = []
     mana_spent = 0
-    attacked_entities: Set[str] = set()
+    attacked_entities: Set[int] = set()
 
     for idx in selected_indices:
         cand = candidate_by_idx[idx]
 
-        # Prevent minion from attacking multiple times (without windfury)
+        # Prevent minion from attacking multiple times (without windfury),
+        # keyed by attacker entity id, falling back to name for synthetic snapshots.
         if cand.action_type == "ATTACK":
-            if cand.entity_name in attacked_entities:
+            attacker_key = (cand.details or {}).get("attacker_entity_id")
+            if attacker_key is None:
+                attacker_key = hash(cand.entity_name)
+            if attacker_key in attacked_entities:
                 continue
-            attacked_entities.add(cand.entity_name)
+            attacked_entities.add(attacker_key)
 
         # Check mana
         if mana_spent + cand.mana_cost > max_mana:
@@ -104,15 +108,20 @@ def parse_model_response(
 
     # --- Step 6: Fallback if model returned empty or totally invalid plan ---
     if not valid_actions:
-        # Heuristic: Take all free attacks to face or minions + highest mana playable card
+        # Heuristic: Take all free attacks + highest mana playable card
         fallback_actions: List[ActionCandidate] = []
         fb_mana = 0
-        fb_attacked: Set[str] = set()
+        fb_attacked: Set[int] = set()
 
         for cand in candidates:
-            if cand.action_type == "ATTACK" and cand.entity_name not in fb_attacked:
+            if cand.action_type == "ATTACK":
+                attacker_key = (cand.details or {}).get("attacker_entity_id")
+                if attacker_key is None:
+                    attacker_key = hash(cand.entity_name)
+                if attacker_key in fb_attacked:
+                    continue
+                fb_attacked.add(attacker_key)
                 fallback_actions.append(cand)
-                fb_attacked.add(cand.entity_name)
 
         # Find best playable card
         play_cards = [c for c in candidates if c.action_type == "PLAY" and c.mana_cost <= max_mana]

@@ -14,59 +14,52 @@ from .replay_reader import GameMetadata, GameReplay
 from .state_tracker import GameStateTracker
 
 # HearthSim / Blizzard GameTag Integer to String Name Mapping
+# Source of truth: HearthSim python-hearthstone hearthstone.enums.GameTag (verified 2026-08)
 GAME_TAG_MAP: Dict[int, str] = {
     17: "PLAYSTATE",
-    18: "HERO_ENTITY",
     19: "STEP",
     20: "TURN",
-    24: "TEMP_RESOURCES",
+    23: "CURRENT_PLAYER",
+    25: "RESOURCES_USED",
     26: "RESOURCES",
-    27: "RESOURCES_USED",
-    30: "TEAM_ID",
-    31: "DIVINE_SHIELD",
-    32: "CHARGE",
-    38: "JUST_PLAYED",
-    44: "FATIGUE",
+    27: "HERO_ENTITY",
+    29: "TEMP_RESOURCES",  # legacy alias, superseded by 295
+    43: "EXHAUSTED",
+    44: "DAMAGE",
     45: "HEALTH",
     47: "ATK",
     48: "COST",
     49: "ZONE",
     50: "CONTROLLER",
-    53: "CURRENT_PLAYER",
-    187: "DAMAGE",
-    189: "ARMOR",
+    187: "DURABILITY",
+    188: "SILENCED",
+    189: "WINDFURY",
+    190: "TAUNT",
     191: "STEALTH",
-    192: "EXHAUSTED",
+    194: "DIVINE_SHIELD",
+    195: "FROZEN",  # legacy alias, superseded by 260
     197: "CHARGE",
-    198: "WINDFURY",
+    198: "NEXT_STEP",
     202: "CARDTYPE",
-    203: "ZONE_POSITION",
-    208: "FROZEN",
-    268: "OVERLOAD_LOCKED",
-    269: "OVERLOAD_OWED",
-    338: "SILENCED",
-    365: "TAUNT",
-    385: "SECRET",
-    794: "RUSH",
+    203: "ZONE_POSITION",  # legacy alias, superseded by 263
+    208: "SILENCED",  # legacy alias, superseded by 188
+    219: "SECRET",
+    260: "FROZEN",
+    263: "ZONE_POSITION",
+    292: "ARMOR",
+    295: "TEMP_RESOURCES",
+    296: "OVERLOAD_OWED",
+    297: "NUM_ATTACKS_THIS_TURN",
+    393: "OVERLOAD_LOCKED",
+    791: "RUSH",
     937: "QUEST",
     1085: "REBORN",
-    1520: "DORMANT",
-    1765: "LOC_USE_REQ_MAX",
-    1840: "LOCATION_ACTION_TARGET",
+    1518: "DORMANT",
+    1646: "HERO_POWER_ENTITY",
+    2353: "LOCATION_COOLDOWN",
 }
 
-# Zone mapping
-ZONE_MAP: Dict[int, str] = {
-    1: "PLAY",
-    2: "DECK",
-    3: "HAND",
-    4: "GRAVEYARD",
-    5: "SECRET",
-    6: "SETASIDE",
-    7: "REMOVEDFROMGAME",
-}
-
-# CardType mapping
+# CardType mapping (HearthSim CardType enum)
 CARDTYPE_MAP: Dict[int, str] = {
     1: "GAME",
     2: "PLAYER",
@@ -81,26 +74,53 @@ CARDTYPE_MAP: Dict[int, str] = {
     39: "LOCATION",
 }
 
-# Step mapping (HearthSim GameStep)
+# Step mapping (HearthSim GameStep enum)
 STEP_MAP: Dict[int, str] = {
-    1: "INVALID",
-    2: "BEGIN_FIRST",
-    3: "BEGIN_SHUFFLE",
-    4: "BEGIN_DRAW",
-    5: "BEGIN_MULLIGAN",
-    6: "MAIN_BEGIN",
-    7: "MAIN_READY",
-    8: "MAIN_RESOURCE",
-    9: "MAIN_DRAW",
-    10: "MAIN_START",
-    11: "MAIN_ACTION",
-    12: "MAIN_COMBAT",
-    13: "MAIN_END",
-    14: "MAIN_NEXT",
-    15: "FINAL_WRAPUP",
-    16: "FINAL_GAMEOVER",
-    17: "MAIN_CLEANUP",
-    18: "MAIN_START_TRIGGERS",
+    0: "INVALID",
+    1: "BEGIN_FIRST",
+    2: "BEGIN_SHUFFLE",
+    3: "BEGIN_DRAW",
+    4: "BEGIN_MULLIGAN",
+    5: "MAIN_BEGIN",
+    6: "MAIN_READY",
+    7: "MAIN_RESOURCE",
+    8: "MAIN_DRAW",
+    9: "MAIN_START",
+    10: "MAIN_ACTION",
+    11: "MAIN_COMBAT",
+    12: "MAIN_END",
+    13: "MAIN_NEXT",
+    14: "FINAL_WRAPUP",
+    15: "FINAL_GAMEOVER",
+    16: "MAIN_CLEANUP",
+    17: "MAIN_START_TRIGGERS",
+    18: "MAIN_SET_ACTION_STEP_TYPE",
+    19: "MAIN_PRE_ACTION",
+    20: "MAIN_POST_ACTION",
+}
+
+# State enum (PLAYSTATE values)
+STATE_MAP: Dict[int, str] = {
+    0: "INVALID",
+    1: "LOADING",
+    2: "RUNNING",
+    3: "COMPLETE",
+    4: "WON",
+    5: "LOST",
+    6: "TIED",
+    7: "DISCONNECTED",
+    8: "CONCEDED",
+}
+
+# Zone mapping (HearthSim ZONE enum)
+ZONE_MAP: Dict[int, str] = {
+    1: "PLAY",
+    2: "DECK",
+    3: "HAND",
+    4: "GRAVEYARD",
+    5: "SECRET",
+    6: "SETASIDE",
+    7: "REMOVEDFROMGAME",
 }
 
 
@@ -118,13 +138,10 @@ def _normalize_tag_name_and_val(raw_tag: str | int, raw_val: str | int) -> tuple
         tag_val = ZONE_MAP.get(t_val, str(t_val))
     elif tag_name == "CARDTYPE":
         tag_val = CARDTYPE_MAP.get(t_val, str(t_val))
-    elif tag_name == "STEP":
-        if t_val in (6, 10, 11):
-            tag_val = "MAIN_ACTION"
-        elif t_val in (13, 14):
-            tag_val = "MAIN_END"
-        else:
-            tag_val = STEP_MAP.get(t_val, str(t_val))
+    elif tag_name == "STEP" or tag_name == "NEXT_STEP":
+        tag_val = STEP_MAP.get(t_val, str(t_val))
+    elif tag_name == "PLAYSTATE":
+        tag_val = STATE_MAP.get(t_val, str(t_val))
 
     return tag_name, str(tag_val)
 
@@ -212,7 +229,15 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
             b_entity = int(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
             b_target = int(elem.attrib.get("target")) if elem.attrib.get("target") else None
 
-            type_str = "PLAY" if b_type == "7" else ("ATTACK" if b_type == "1" else ("POWER" if b_type == "6" else b_type))
+            # HearthSim BlockType enum: ATTACK=1, POWER=3, TRIGGER=5, DEATHS=6, PLAY=7, FATIGUE=8
+            type_str = {
+                "1": "ATTACK",
+                "3": "POWER",
+                "5": "TRIGGER",
+                "6": "DEATHS",
+                "7": "PLAY",
+                "8": "FATIGUE",
+            }.get(b_type, b_type)
 
             block_data: Dict[str, Any] = {
                 "block_type": type_str,
@@ -277,6 +302,21 @@ def parse_hsreplay_xml_file(xml_path: Path, card_db: CardDatabase) -> GameReplay
         if oh_ent and oh_ent.name:
             o_hero_name = oh_ent.name
 
+    # Real result/game mode from the PLAYSTATE tags on each player entity
+    f_result = "Unknown"
+    o_result = "Unknown"
+    if f_player:
+        f_result = f_player.playstate
+    if o_player:
+        o_result = o_player.playstate
+    # Normalize: tracker stores WON/LOST/CONCEDED/TIED or "PLAYING" if tag was missing
+    result_map = {"WON": "Win", "LOST": "Loss", "CONCEDED": "Loss", "TIED": "Tie"}
+    my_result = result_map.get(f_result, "Unknown")
+    if my_result == "Unknown" and o_result in ("LOST", "CONCEDED"):
+        my_result = "Win"
+    elif my_result == "Unknown" and o_result == "WON":
+        my_result = "Loss"
+
     meta = GameMetadata(
         game_id=xml_path.stem,
         replay_file=xml_path.name,
@@ -284,7 +324,7 @@ def parse_hsreplay_xml_file(xml_path: Path, card_db: CardDatabase) -> GameReplay
         opponent_name=opp_name,
         player_hero=f_hero_name,
         opponent_hero=o_hero_name,
-        result="Win",
+        result=my_result,
         game_mode="Ranked",
         format="Standard" if game_elem.attrib.get("format") == "2" else "Wild",
         turns_count=len(tracker.turn_snapshots),

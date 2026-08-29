@@ -28,16 +28,19 @@ RE_TAG_CHANGE = re.compile(r"^TAG_CHANGE Entity=(.+?) tag=(\w+) value=(.*)$")
 RE_FULL_ENTITY = re.compile(r"^FULL_ENTITY - (?:Creating|Updating) (?:ID=|Entity=)(\d+) CardID=(\w*)")
 RE_SHOW_ENTITY = re.compile(r"^SHOW_ENTITY - Updating Entity=(.+?) CardID=(\w*)")
 RE_HIDE_ENTITY = re.compile(r"^HIDE_ENTITY - Entity=(.+?) tag=(\w+) value=(.*)")
-RE_BLOCK_START = re.compile(
-    r"^BLOCK_START BlockType=(\w+) Entity=(.+?)(?:\s+EffectCardId=.*?)?(?:\s+EffectIndex=.*?)?(?:\s+Target=(.+?))?(?:\s+SubOption=(-?\d+))?(?:\s+TriggerKeyword=\d+)?$"
-)
+RE_BLOCK_START = re.compile(r"^BLOCK_START BlockType=(\w+) Entity=(.+?)(?= EffectCardId=|$)")
+# Target value: bracketed entity (may contain nested brackets) OR bare token,
+# stopped before the next " Key=" field or end of string.
+RE_KV_TARGET = re.compile(r"\sTarget=(\[.*?\]|\S+?)(?=\s+\w+=|$)")
+RE_KV_SUBOPTION = re.compile(r"\sSubOption=(-?\d+)")
 RE_BLOCK_END = re.compile(r"^BLOCK_END")
 
 
 def parse_entity_ref(raw: str) -> Dict[str, Any]:
     """
     Parses entity representations from Hearthstone logs.
-    Handles bracket notation: '[entityName=... id=19 zone=HAND cardId=TSC_916 player=1]'
+    Handles bracket notation (incl. nested brackets from 'UNKNOWN ENTITY [cardType=INVALID]'):
+    '[entityName=... id=19 zone=HAND cardId=TSC_916 player=1] SubOption=-1 ...'
     or pure numeric IDs: '98'
     or player names: 'HappyBread#21597'
     """
@@ -47,30 +50,31 @@ def parse_entity_ref(raw: str) -> Dict[str, Any]:
     if raw.isdigit():
         return {"id": int(raw), "raw": raw}
 
-    if raw.startswith("[") and raw.endswith("]"):
-        content = raw[1:-1]
+    if raw.startswith("["):
+        # Extract typed fields by scanning anywhere in the string —
+        # entityName may itself contain nested brackets.
         res: Dict[str, Any] = {"raw": raw}
-        m_id = re.search(r"\bid=(\d+)", content)
+        m_id = re.search(r"\bid=(\d+)", raw)
         if m_id:
             res["id"] = int(m_id.group(1))
 
-        m_card = re.search(r"\bcardId=(\w*)", content)
+        m_card = re.search(r"\bcardId=(\w*)", raw)
         if m_card:
             res["cardId"] = m_card.group(1)
 
-        m_zone = re.search(r"\bzone=(\w+)", content)
+        m_zone = re.search(r"\szone=(\w+)", raw)
         if m_zone:
             res["zone"] = m_zone.group(1)
 
-        m_zone_pos = re.search(r"\bzonePos=(\d+)", content)
+        m_zone_pos = re.search(r"\bzonePos=(\d+)", raw)
         if m_zone_pos:
             res["zonePos"] = int(m_zone_pos.group(1))
 
-        m_player = re.search(r"\bplayer=(\d+)", content)
+        m_player = re.search(r"\splayer=(\d+)", raw)
         if m_player:
             res["player"] = int(m_player.group(1))
 
-        m_name = re.search(r"entityName=(.*?)(?:\s+\w+=|$)", content)
+        m_name = re.search(r"entityName=(.+?)(?=\s(?:id|zone|zonePos|cardId|player)=|$)", raw)
         if m_name:
             res["entityName"] = m_name.group(1).strip()
 
@@ -116,7 +120,11 @@ def parse_power_log_lines(lines: Iterable[str]) -> Generator[PowerEvent, None, N
         # 2. BLOCK_START
         m_bs = RE_BLOCK_START.match(payload)
         if m_bs:
-            btype, ent_str, target_str, suboption = m_bs.groups()
+            btype, ent_str = m_bs.groups()
+            m_target = RE_KV_TARGET.search(payload)
+            target_str = m_target.group(1).strip() if m_target else None
+            m_sub = RE_KV_SUBOPTION.search(payload)
+            suboption = m_sub.group(1) if m_sub else None
             yield PowerEvent(
                 event_type="BLOCK_START",
                 data={
