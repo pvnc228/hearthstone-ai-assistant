@@ -25,7 +25,8 @@ RE_PLAYER_ENTITY = re.compile(
 RE_PLAYER_NAME = re.compile(r"^PlayerID=(\d+),\s*PlayerName=(.*)$")
 RE_TAG = re.compile(r"^tag=(\w+) value=(.*)$")
 RE_TAG_CHANGE = re.compile(r"^TAG_CHANGE Entity=(.+?) tag=(\w+) value=(.*)$")
-RE_FULL_ENTITY = re.compile(r"^FULL_ENTITY - (?:Creating|Updating) (?:ID=|Entity=)(\d+) CardID=(\w*)")
+# FULL_ENTITY: 'Creating ID=4 CardID=' (numeric) or 'Updating [entityName=... id=9 ...] CardID=X' (bracketed reveal)
+RE_FULL_ENTITY = re.compile(r"^FULL_ENTITY - (?:Creating|Updating) (?:ID=(\d+)|(\[.+\])) CardID=(\w*)")
 RE_SHOW_ENTITY = re.compile(r"^SHOW_ENTITY - Updating Entity=(.+?) CardID=(\w*)")
 RE_HIDE_ENTITY = re.compile(r"^HIDE_ENTITY - Entity=(.+?) tag=(\w+) value=(.*)")
 RE_BLOCK_START = re.compile(r"^BLOCK_START BlockType=(\w+) Entity=(.+?)(?= EffectCardId=|$)")
@@ -142,11 +143,15 @@ def parse_power_log_lines(lines: Iterable[str]) -> Generator[PowerEvent, None, N
             yield PowerEvent(event_type="BLOCK_END", raw_line=stripped)
             continue
 
-        # 4. FULL_ENTITY
+        # 4. FULL_ENTITY — numeric form 'ID=4' or bracket form 'Updating [... id=9 ...]'
         m_fe = RE_FULL_ENTITY.match(payload)
         if m_fe:
-            eid, cid = m_fe.groups()
-            current_entity_id = int(eid)
+            eid_raw, bracket, cid = m_fe.groups()
+            if eid_raw is not None:
+                current_entity_id = int(eid_raw)
+            elif bracket:
+                m_id = re.search(r"\bid=(\d+)", bracket)
+                current_entity_id = int(m_id.group(1)) if m_id else None
             yield PowerEvent(
                 event_type="FULL_ENTITY",
                 data={"entity_id": current_entity_id, "card_id": cid or ""},
@@ -184,6 +189,7 @@ def parse_power_log_lines(lines: Iterable[str]) -> Generator[PowerEvent, None, N
 
         # 7. CREATE_GAME
         if RE_CREATE_GAME.match(payload):
+            current_entity_id = None  # multi-game streams: don't leak tags into the previous game's last entity
             yield PowerEvent(event_type="CREATE_GAME", raw_line=stripped)
             continue
 

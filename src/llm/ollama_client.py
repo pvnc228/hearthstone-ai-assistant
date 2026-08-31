@@ -99,6 +99,8 @@ class OllamaClient:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 resp_data = json.loads(resp.read().decode("utf-8"))
+                if "error" in resp_data:
+                    raise ConnectionError(f"Ollama error from {target_model}: {resp_data['error']}")
                 return resp_data.get("response", "").strip()
         except urllib.error.URLError as e:
             logger.error("Ollama connection error: %s", e)

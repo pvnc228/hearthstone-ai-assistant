@@ -49,11 +49,13 @@ def build_hsreplay_dataset(
         for idx, xf in enumerate(xml_paths, start=1):
             try:
                 replay = parse_hsreplay_xml_file(xf, card_db=card_db)
-                if not replay.friendly_turns:
+                if not any(ts.is_friendly_turn and ts.actions for ts in replay.turn_snapshots):
                     continue
 
                 games_processed += 1
                 for snap in replay.friendly_turns:
+                    if not snap.actions:
+                        continue  # dataset keeps only turns with actions to imitate
                     prompt = format_turn_prompt(
                         snapshot=snap,
                         player_hero=replay.metadata.player_hero,

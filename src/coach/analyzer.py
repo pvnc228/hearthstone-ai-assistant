@@ -6,7 +6,6 @@ and generates step-by-step coaching reports with local LLM recommendations.
 
 import logging
 from dataclasses import dataclass, field
-from itertools import combinations
 from typing import Any, Dict, List, Optional
 
 from src.card_db import CardDatabase
@@ -73,7 +72,15 @@ class MatchCoach:
         model_name: Optional[str] = None,
     ):
         self.card_db = card_db or CardDatabase(auto_load=True)
-        self.llm_client = ollama_client or OllamaClient(model=model_name)
+        self._model_name = model_name
+        # Lazy: OllamaClient probes the HTTP server on construction; don't pay
+        # that cost in --no-llm mode (query_llm=False creates the client only on first use).
+        self.llm_client = ollama_client
+
+    def _get_llm_client(self) -> OllamaClient:
+        if self.llm_client is None:
+            self.llm_client = OllamaClient(model=self._model_name)
+        return self.llm_client
 
     def calculate_max_burst_damage(self, snapshot: TurnSnapshot) -> int:
         """
@@ -112,19 +119,19 @@ class MatchCoach:
 
     @staticmethod
     def _max_damage_within_mana(options: List[tuple], mana: int) -> int:
-        """Exact max damage achievable within mana budget (small n -> combinations)."""
-        if not options:
+        """Exact max damage within mana budget — O(n*mana) knapsack DP, not 2^n subsets."""
+        if not options or mana <= 0:
             return 0
-        best = 0
-        n = len(options)
-        for r in range(1, n + 1):
-            for combo in combinations(options, r):
-                total_cost = sum(c for c, _ in combo)
-                if total_cost <= mana:
-                    total_dmg = sum(d for _, d in combo)
-                    if total_dmg > best:
-                        best = total_dmg
-        return best
+        # best[c] = max damage achievable with exactly <= c mana
+        best = [0] * (mana + 1)
+        for cost, dmg in options:
+            if cost > mana or dmg <= 0:
+                continue
+            for c in range(mana, cost - 1, -1):
+                cand = best[c - cost] + dmg
+                if cand > best[c]:
+                    best[c] = cand
+        return best[mana]
 
     def build_llm_prompt(self, snapshot: TurnSnapshot, candidates: List[ActionCandidate]) -> str:
         """
@@ -175,6 +182,7 @@ class MatchCoach:
         tempo_loss = (
             snapshot.is_friendly_turn
             and snapshot.friendly_mana >= 2
+            and len(snapshot.friendly_hand) > 0
             and len(snapshot.actions) == 0
             and not snapshot.game_ended
         )
@@ -186,7 +194,7 @@ class MatchCoach:
         if query_llm and candidates:
             prompt = self.build_llm_prompt(snapshot, candidates)
             try:
-                raw_resp = self.llm_client.generate(prompt=prompt, temperature=0.1, max_tokens=100)
+                raw_resp = self._get_llm_client().generate(prompt=prompt, temperature=0.1, max_tokens=100)
                 parsed = parse_model_response(raw_resp, candidates, max_mana=snapshot.friendly_mana)
                 ai_actions = parsed.action_descriptions
                 ai_reasoning = parsed.reasoning
@@ -229,10 +237,9 @@ class MatchCoach:
             analysis = self.analyze_turn(snapshot, query_llm=query_llm)
             turn_analyses.append(analysis)
 
-            # Suppress "missed lethal" when the player actually won on/before this turn
-            # (they executed the lethal) or the game was already over.
-            won_this_or_earlier = meta.result == "Win" and i >= len(friendly_turns) - 1
-            if analysis.is_lethal_possible and not won_this_or_earlier and not snapshot.game_ended:
+            # Suppress "missed lethal" when the game ended on this turn
+            # (the player either executed the lethal or the outcome was already decided).
+            if analysis.is_lethal_possible and not snapshot.game_ended:
                 missed_lethals += 1
             if analysis.tempo_loss:
                 tempo_losses += 1

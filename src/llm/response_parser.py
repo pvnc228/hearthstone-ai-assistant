@@ -90,7 +90,7 @@ def parse_model_response(
         cand = candidate_by_idx[idx]
 
         # Prevent minion from attacking multiple times (without windfury),
-        # keyed by attacker entity id, falling back to name for synthetic snapshots.
+        # keyed by attacker entity id; name-hash fallback for synthetic candidates.
         if cand.action_type == "ATTACK":
             attacker_key = (cand.details or {}).get("attacker_entity_id")
             if attacker_key is None:
@@ -123,8 +123,11 @@ def parse_model_response(
                 fb_attacked.add(attacker_key)
                 fallback_actions.append(cand)
 
-        # Find best playable card
+        # Find best playable card — prefer untargeted plays (no nonsense targets)
         play_cards = [c for c in candidates if c.action_type == "PLAY" and c.mana_cost <= max_mana]
+        untargeted = [c for c in play_cards if c.target_name is None]
+        if untargeted:
+            play_cards = untargeted
         if play_cards:
             # Sort by highest mana cost for max tempo
             play_cards.sort(key=lambda c: c.mana_cost, reverse=True)

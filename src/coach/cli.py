@@ -6,7 +6,6 @@ Usage:
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -103,8 +102,8 @@ def main() -> None:
     card_db = CardDatabase(auto_load=True)
     replay = parse_replay_file(target_file, card_db=card_db, deck_stats_index=stats_index)
 
-    client = OllamaClient(model=args.model)
-    coach = MatchCoach(card_db=card_db, ollama_client=client, model_name=args.model)
+    # In --no-llm mode skip the client entirely: its constructor probes Ollama over HTTP.
+    coach = MatchCoach(card_db=card_db, ollama_client=None if args.no_llm else OllamaClient(model=args.model))
 
     report = coach.analyze_replay(replay, query_llm=not args.no_llm)
     print_match_report(report)

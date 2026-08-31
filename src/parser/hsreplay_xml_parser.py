@@ -23,7 +23,6 @@ GAME_TAG_MAP: Dict[int, str] = {
     25: "RESOURCES_USED",
     26: "RESOURCES",
     27: "HERO_ENTITY",
-    29: "TEMP_RESOURCES",  # legacy alias, superseded by 295
     43: "EXHAUSTED",
     44: "DAMAGE",
     45: "HEALTH",
@@ -37,12 +36,9 @@ GAME_TAG_MAP: Dict[int, str] = {
     190: "TAUNT",
     191: "STEALTH",
     194: "DIVINE_SHIELD",
-    195: "FROZEN",  # legacy alias, superseded by 260
     197: "CHARGE",
     198: "NEXT_STEP",
     202: "CARDTYPE",
-    203: "ZONE_POSITION",  # legacy alias, superseded by 263
-    208: "SILENCED",  # legacy alias, superseded by 188
     219: "SECRET",
     260: "FROZEN",
     263: "ZONE_POSITION",
@@ -124,6 +120,21 @@ ZONE_MAP: Dict[int, str] = {
 }
 
 
+def _to_entity_id(raw: Any, name_to_id: Optional[Dict[str, int]] = None) -> Optional[int]:
+    """Converts an HSReplay entity attribute to an entity id.
+    May be an int string, or a name ('GameEntity', player name) per spec."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if s.isdigit():
+        return int(s)
+    if name_to_id is not None and s in name_to_id:
+        return name_to_id[s]
+    if s == "GameEntity":
+        return 1
+    return None
+
+
 def _normalize_tag_name_and_val(raw_tag: str | int, raw_val: str | int) -> tuple[str, Any]:
     try:
         t_id = int(raw_tag)
@@ -146,15 +157,18 @@ def _normalize_tag_name_and_val(raw_tag: str | int, raw_val: str | int) -> tuple
     return tag_name, str(tag_val)
 
 
-def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
+def parse_hsreplay_xml_events(game_element: ET.Element, name_to_id: Optional[Dict[str, int]] = None) -> Iterator[PowerEvent]:
     """
     Recursively walks through <Game> element and yields sequential PowerEvents.
+    name_to_id maps player names / 'GameEntity' to entity ids for name-based refs.
     """
     for elem in game_element:
         tag_name = elem.tag
 
         if tag_name == "GameEntity":
-            eid = int(elem.attrib.get("entity") or elem.attrib.get("id", "1"))
+            eid = _to_entity_id(elem.attrib.get("entity") or elem.attrib.get("id", "1"))
+            if eid is None:
+                continue
             yield PowerEvent(
                 event_type="GAME_ENTITY",
                 data={"entity_id": eid},
@@ -167,14 +181,17 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
                 )
 
         elif tag_name == "Player":
-            eid = int(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
+            eid = _to_entity_id(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
             pid = int(elem.attrib.get("playerID", "0"))
             pname = elem.attrib.get("name", f"Player{pid}")
 
-            yield PowerEvent(
-                event_type="PLAYER_ENTITY",
-                data={"entity_id": eid, "player_id": pid},
-            )
+            if eid is not None:
+                yield PowerEvent(
+                    event_type="PLAYER_ENTITY",
+                    data={"entity_id": eid, "player_id": pid},
+                )
+                if name_to_id is not None:
+                    name_to_id[pname] = eid
             yield PowerEvent(
                 event_type="PLAYER_NAME",
                 data={"player_id": pid, "player_name": pname},
@@ -187,8 +204,10 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
                 )
 
         elif tag_name == "FullEntity":
-            eid = int(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
+            eid = _to_entity_id(elem.attrib.get("entity") or elem.attrib.get("id", "0"), name_to_id)
             cid = elem.attrib.get("cardID", "")
+            if eid is None:
+                continue
 
             yield PowerEvent(
                 event_type="FULL_ENTITY",
@@ -202,8 +221,10 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
                 )
 
         elif tag_name == "ShowEntity":
-            eid = int(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
+            eid = _to_entity_id(elem.attrib.get("entity") or elem.attrib.get("id", "0"), name_to_id)
             cid = elem.attrib.get("cardID", "")
+            if eid is None:
+                continue
 
             yield PowerEvent(
                 event_type="SHOW_ENTITY",
@@ -217,7 +238,9 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
                 )
 
         elif tag_name == "TagChange":
-            eid = int(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
+            eid = _to_entity_id(elem.attrib.get("entity") or elem.attrib.get("id", "0"), name_to_id)
+            if eid is None:
+                continue
             t_name, t_val = _normalize_tag_name_and_val(elem.attrib["tag"], elem.attrib["value"])
             yield PowerEvent(
                 event_type="TAG_CHANGE",
@@ -226,8 +249,8 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
 
         elif tag_name == "Block":
             b_type = elem.attrib.get("type", "0")
-            b_entity = int(elem.attrib.get("entity") or elem.attrib.get("id", "0"))
-            b_target = int(elem.attrib.get("target")) if elem.attrib.get("target") else None
+            b_entity = _to_entity_id(elem.attrib.get("entity") or elem.attrib.get("id", "0"), name_to_id)
+            b_target = _to_entity_id(elem.attrib.get("target"), name_to_id) if elem.attrib.get("target") else None
 
             # HearthSim BlockType enum: ATTACK=1, POWER=3, TRIGGER=5, DEATHS=6, PLAY=7, FATIGUE=8
             type_str = {
@@ -241,7 +264,7 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
 
             block_data: Dict[str, Any] = {
                 "block_type": type_str,
-                "entity": {"id": b_entity},
+                "entity": {"id": b_entity if b_entity is not None else 0},
             }
             if b_target:
                 block_data["target"] = {"id": b_target}
@@ -252,7 +275,7 @@ def parse_hsreplay_xml_events(game_element: ET.Element) -> Iterator[PowerEvent]:
             )
 
             # Recurse inside block children
-            for sub_evt in parse_hsreplay_xml_events(elem):
+            for sub_evt in parse_hsreplay_xml_events(elem, name_to_id):
                 yield sub_evt
 
             yield PowerEvent(event_type="BLOCK_END", data={})
@@ -281,7 +304,7 @@ def parse_hsreplay_xml_file(xml_path: Path, card_db: CardDatabase) -> GameReplay
             opp_name = pname
 
     tracker = GameStateTracker(card_db=card_db, friendly_player_name=friendly_name)
-    events = parse_hsreplay_xml_events(game_elem)
+    events = parse_hsreplay_xml_events(game_elem, name_to_id={"GameEntity": 1})
     for evt in events:
         tracker.process_event(evt)
     tracker.finalize()

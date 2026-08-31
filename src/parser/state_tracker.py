@@ -142,7 +142,11 @@ class Entity:
             return False
         if self.attack <= 0:
             return False
-        return not self.is_exhausted or self.get_tag("CHARGE", 0) == 1 or self.get_tag("RUSH", 0) == 1
+        if not (not self.is_exhausted or self.get_tag("CHARGE", 0) == 1 or self.get_tag("RUSH", 0) == 1):
+            return False
+        # Attack budget: 1 normally, 2 with Windfury
+        max_attacks = 2 if self.get_tag("WINDFURY", 0) == 1 else 1
+        return self.num_attacks_this_turn < max_attacks
 
     @property
     def can_attack_hero(self) -> bool:
@@ -231,6 +235,8 @@ class GameStateTracker:
         self._current_snapshot: Optional[TurnSnapshot] = None
         self._actions_this_turn: List[PlayerAction] = []
         self._pending_turn_transition: bool = False
+        # entity_id -> [(kind, PlayerAction)]: actions awaiting SHOW_ENTITY name backfill
+        self._unresolved_actions: Dict[int, List[tuple]] = {}
 
     def get_or_create_entity(self, entity_id: int) -> Entity:
         if entity_id not in self.entities:
@@ -267,6 +273,7 @@ class GameStateTracker:
             self._pending_turn_transition = False
             self._current_snapshot = None
             self._actions_this_turn.clear()
+            self._unresolved_actions.clear()
 
         elif etype == "GAME_ENTITY":
             self.game_entity_id = data.get("entity_id", 1)
@@ -507,6 +514,7 @@ class GameStateTracker:
                 details={"sub_option": data.get("sub_option", -1), "_entity_id": eid, "_target_entity_id": target_eid},
             )
             self._actions_this_turn.append(action)
+            self._index_action_refs(action)
 
         elif btype == "ATTACK":
             action = PlayerAction(
@@ -519,25 +527,42 @@ class GameStateTracker:
                 details={"_entity_id": eid, "_target_entity_id": target_eid},
             )
             self._actions_this_turn.append(action)
+            self._index_action_refs(action)
 
     def finalize(self) -> None:
         """Finalizes the last turn's actions."""
         if self._current_snapshot and self._actions_this_turn:
             self._current_snapshot.actions = list(self._actions_this_turn)
             self._actions_this_turn.clear()
+        # game_ended on the final snapshot: PLAYSTATE WON/LOST arrives mid-turn,
+        # after the snapshot was taken — propagate the final state now.
+        if self._current_snapshot and self.game_over:
+            self._current_snapshot.game_ended = True
+
+    def _index_action_refs(self, act: PlayerAction) -> None:
+        """Registers an action's unresolved entity refs in the O(1) backfill index."""
+        ent_id = act.details.get("_entity_id")
+        if ent_id and act.entity_card_id == "":
+            self._unresolved_actions.setdefault(ent_id, []).append(("entity", act))
+        tgt_id = act.details.get("_target_entity_id")
+        if tgt_id and act.target_card_id == "" and act.target_name:
+            self._unresolved_actions.setdefault(tgt_id, []).append(("target", act))
 
     def _refresh_unresolved_actions(self, entity_id: int, ent: Entity) -> None:
         """Backfills names of actions recorded before SHOW_ENTITY revealed the card
-        (opponent plays are logged as 'UNKNOWN ENTITY' until mid-block)."""
+        (opponent plays are logged as 'UNKNOWN ENTITY' until mid-block). O(1) per reveal."""
         if not ent.name and not ent.card_id:
             return
-        action_groups = [snap.actions for snap in self.turn_snapshots] + [self._actions_this_turn]
-        for actions in action_groups:
-            for act in actions:
-                if act.entity_card_id == "" and act.details.get("_entity_id") == entity_id:
+        pending = self._unresolved_actions.pop(entity_id, None)
+        if not pending:
+            return
+        for kind, act in pending:
+            if kind == "entity":
+                if act.entity_card_id == "":
                     act.entity_name = ent.name or act.entity_name
                     act.entity_card_id = ent.card_id or act.entity_card_id
-                if act.target_card_id == "" and act.target_name and act.details.get("_target_entity_id") == entity_id:
+            else:  # target
+                if act.target_card_id == "" and act.target_name:
                     act.target_name = ent.name or act.target_name
                     act.target_card_id = ent.card_id or act.target_card_id
 

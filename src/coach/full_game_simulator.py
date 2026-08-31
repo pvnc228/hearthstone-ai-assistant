@@ -12,11 +12,13 @@ from src.llm import OllamaClient, generate_legal_candidates, parse_model_respons
 from src.parser import DEFAULT_REPLAY_DIR, load_deck_stats_index, parse_replay_file
 from src.coach.analyzer import MatchCoach
 
+OUTPUT_FILE = Path("data/full_game_simulation.md")
+
 
 def run_full_game_simulation():
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     card_db = CardDatabase(auto_load=True)
-    client = OllamaClient(model="qwen2.5:1.5b-instruct-q8_0")
+    client = OllamaClient()  # auto-select installed model
     coach = MatchCoach(card_db=card_db, ollama_client=client)
 
     stats_index = load_deck_stats_index()
@@ -31,7 +33,7 @@ def run_full_game_simulation():
         meta = stats_index.get(rf.name)
         if meta and meta.result == "Win" and meta.game_mode == "Ranked" and meta.turns_count >= 5:
             target_replay = parse_replay_file(rf, card_db=card_db, deck_stats_index=stats_index)
-            if len(target_replay.friendly_turns) >= 4:
+            if len([s for s in target_replay.friendly_turns if s.actions]) >= 4:
                 break
 
     if not target_replay:
@@ -45,7 +47,7 @@ def run_full_game_simulation():
     lines.append(f"**Матч**: {meta.player_name} ({meta.player_hero}) vs {meta.opponent_name} ({meta.opponent_hero})")
     lines.append(f"**Колода игрока**: {meta.deck_name or 'Основная колода'}")
     lines.append(f"**Режим**: {meta.game_mode} ({meta.format}) | **Результат**: 🟢 {meta.result}")
-    lines.append(f"**Модель ИИ**: `{client.model}` (Q8_0, 1.6 GB VRAM на RTX 4060)")
+    lines.append(f"**Модель ИИ**: `{client.model}`")
     lines.append(f"**Дата симуляции**: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     lines.append("---\n")
 

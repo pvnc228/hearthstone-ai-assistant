@@ -81,6 +81,7 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                     target_name=t_name,
                     target_card_id=target.get("card_id", ""),
                     target_entity_id=target.get("entity_id"),
+                    details={"attacker_entity_id": m_eid},
                     description=desc,
                 )
             )
@@ -114,16 +115,20 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
     for card_data in snapshot.friendly_hand:
         cid = card_data.get("card_id", "")
         card_name = card_data.get("name", "Карта")
-        cost = card_data.get("cost", 0)
-
+        cost = card_data.get("cost")
+        if cost is None:
+            continue  # unknown cost — cannot verify mana compliance
         if cost > mana:
             continue
 
         c_info = card_db.get_by_id(cid) if cid else None
-        c_type = card_data.get("card_type") or (int(c_info.card_type) if c_info else 4)
+        c_type = card_data.get("card_type") or (int(c_info.card_type) if c_info else 0)
+
+        if c_type == CardType.ENCHANTMENT:
+            continue  # enchantments never sit in hand / are never played directly
 
         # Non-targeted minions / weapons / secrets
-        if c_type in (CardType.MINION, CardType.WEAPON, CardType.ENCHANTMENT) or not c_info:
+        if c_type in (CardType.MINION, CardType.WEAPON) or not c_type:
             if c_type == CardType.MINION and board_full:
                 continue  # board full (10 minions) — cannot play more minions
             atk = card_data.get("attack") or (c_info.attack if c_info else None)
@@ -144,7 +149,27 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
             idx += 1
 
         elif c_type == CardType.SPELL:
-            # Check targeted damage/removal spells
+            # Untracked AoE / no-target spells: single untargeted candidate.
+            # Targeted spells: hero + enemy-minion variants.
+            # ponytail: real targeting data lives in CardDefs' RequiresTarget tag; add when the card DB indexes it.
+            card_text = (c_info.text_ru if c_info else "") or ""
+            aoe_keywords = ("всем", "все сущест", "всем вражеским")
+            is_aoe = any(k in card_text.lower() for k in aoe_keywords)
+            if is_aoe:
+                desc_aoe = f"Разыграть заклинание: {card_name} ({cost}м) [без цели]"
+                candidates.append(
+                    ActionCandidate(
+                        index=idx,
+                        action_type="PLAY",
+                        entity_name=card_name,
+                        entity_card_id=cid,
+                        mana_cost=cost,
+                        description=desc_aoe,
+                    )
+                )
+                idx += 1
+                continue
+
             # Target enemy hero
             desc_hero = f"Разыграть заклинание: {card_name} ({cost}м) -> Герой противника"
             candidates.append(
@@ -180,10 +205,11 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                 )
                 idx += 1
 
-    # 3. Hero Power — only if the power entity exists and is not exhausted this turn
+    # 3. Hero Power — only if the power entity exists and is not exhausted this turn.
+    # Missing hero_power info means unknown state: treat as used (conservative, no illegal suggestion).
     hp_info = snapshot.hero_power or {}
-    hp_used = hp_info.get("exhausted", False)
-    if mana >= 2 and not hp_used:
+    hp_used = hp_info.get("exhausted", True)
+    if mana >= 2 and not hp_used and hp_info:
         hero_power_name = hp_info.get("name") or "Сила героя"
         desc_hp = f"Сила героя: {hero_power_name} (2м)"
         candidates.append(

@@ -51,8 +51,9 @@ class GameReplay:
 
     @property
     def friendly_turns(self) -> List[TurnSnapshot]:
-        """Returns only the snapshots where the friendly player was taking their turn."""
-        return [ts for ts in self.turn_snapshots if ts.is_friendly_turn and len(ts.actions) > 0]
+        """All snapshots where the friendly player was taking their turn
+        (including pass turns with no actions — needed for tempo-loss analysis)."""
+        return [ts for ts in self.turn_snapshots if ts.is_friendly_turn]
 
 
 def load_deck_stats_index(deck_stats_path: Optional[Path | str] = None) -> Dict[str, GameMetadata]:
