@@ -35,9 +35,10 @@ htmlcov/
 data/cache/*.db
 data/cache/hsreplay_session.json
 data/replays_hsreplay/
-*.log
-
-# IDE
+# Models & Weights
+models/
+*.safetensors
+*.bin
 .vscode/
 .idea/
 *.swp

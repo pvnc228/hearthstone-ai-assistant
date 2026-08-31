@@ -12,6 +12,7 @@
 - [x] 🟢 **1.1. XML Card Indexer**: Создан модуль `src/card_db/indexer.py` для парсинга `CardDefs.ruRU.xml` и `CardDefs.base.xml`.
 - [x] 🟢 **1.2. Быстрый кэш SQLite / JSON**: Сгенерирован индекс на 35 807 карт с поддержкой современных механик (Титаны, Области, Туристы, Звездолеты, Руны DK, Миниатюризация, Гигантизация).
 - [x] 🟢 **1.3. Форматтер описания сущностей**: Создан модуль `src/card_db/formatter.py` для генерации компактных семантических описаний карт и стола под LLM-промпты.
+- [x] 🟢 **1.4. Семантический граф токенов (TokenGraph)**: Интегрирован граф порождаемых карт и токенов (`src/card_db/token_graph.py`) на базе датасета `TraceOnSnow` (8 661 карт, 6 069 связей).
 
 ---
 
@@ -29,7 +30,7 @@
 
 ---
 
-## Фаза 4: Live In-Game Watcher (Реальное время)
+## Фаза 4: Live In-Game Watcher (Реальное время — отложено)
 - [ ] ⚪ **4.1. Power.log Watcher**: Асинхронный tailer `D:\Hearthstone\Logs\Power.log`.
 - [ ] ⚪ **4.2. Rule Validator (Compliance Engine)**: Быстрая проверка доступности маны и легальных целей.
 - [ ] ⚪ **4.3. Real-Time Advisor CLI / Overlay**: Вывод 3-5 кандидатов действий за < 3 секунд на ход с приоритетами.
@@ -37,6 +38,6 @@
 ---
 
 ## Фаза 5: Персонализация и Fine-Tuning (QLoRA)
-- [ ] ⚪ **5.1. Подготовка датасета под QLoRA**: Форматирование в ChatML / Alpaca формат.
-- [ ] ⚪ **5.2. QLoRA обучение на RTX 4060**: Дообучение LoRA адаптера поверх Qwen-2.5-7B на 8 GB VRAM.
-- [ ] ⚪ **5.3. Оценка качества**: Сравнение предсказаний базовой модели vs дообученной на тестовой выборке матчей.
+- [x] 🟢 **5.1. Подготовка датасета под QLoRA**: Модуль `src/llm/dataset_formatter.py` — генерация ChatML / Alpaca (`sft_train_chatml.jsonl` 4 677 пар, `sft_eval_chatml.jsonl` 497 пар с разделением по матчам).
+- [x] 🟢 **5.2. QLoRA пайплайн обучения на RTX 4060**: Скрипт `src/llm/train_qlora.py` и конфиг `configs/qlora_config.json` (4-bit NF4, LoRA r=16, alpha=32, target_modules=all-linear, SFTTrainer).
+- [ ] ⚪ **5.3. Запуск полного обучения и экспорт**: Дообучение LoRA адаптера поверх Qwen-2.5-7B и конвертация в Ollama Modelfile.

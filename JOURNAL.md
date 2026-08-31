@@ -93,3 +93,23 @@
 - Извлечено обучающих пар из HSReplay: **2 337 ходов** (2 312 уникальных).
 - Итоговый объединенный мастер-датасет: **7 486 ходов** (`data/processed/train_master_actions.jsonl`, 9.97 MB).
 - Юнит-тесты: `16/16 passed` (`pytest tests/ -v`).
+
+---
+
+## 2026-08-31 — Исследование Hugging Face датасетов, интеграция TokenGraph и пайплайн QLoRA (Фаза 5)
+
+### 1. Исследование датасетов через `ml-intern`
+- Проведен технический аудит 5 ресурсов на Hugging Face через агент `ml-intern`:
+  1. `TraceOnSnow/hearthstone-art-512`: Структурированный семантический граф токенов и карт (8 661 карт, 6 069 связей «родитель $\to$ токен»). Отобран для интеграции.
+  2. `dvitel/hearthstone` + `dvitel/h1`: Кодогенерация симулятора Hearthbreaker (устарело, 665 карт).
+  3. `FrancophonIA/Hearthstone`: Мультиязычные тексты карт (избыточно при наличии XML HDT на 35.8k карт).
+  4. `Norod78/hearthstone-cards-512`: Text-to-Image карточки (для текущего пайплайна не требуется).
+
+### 2. Реализованные модули
+- `src/card_db/token_graph.py`: Семантический граф `TokenGraph` с микросекундным резолвингом дочерних сущностей и порождаемых токенов (`get_child_cards`, `get_parent_cards`, `format_token_summary`).
+- `src/card_db/formatter.py`: Обогащение описания карт информацией о генерируемых токенах и тегах действий.
+- `src/llm/dataset_formatter.py`: Модуль форматирования датасета тактических решений в стандарты ChatML / Alpaca (`sft_train_chatml.jsonl` — 4 677 пар, `sft_eval_chatml.jsonl` — 497 пар) с гарантией изоляции train/eval по ID матчей.
+- `src/llm/train_qlora.py` & `configs/qlora_config.json`: Оптимизированный скрипт QLoRA обучения на базе `SFTTrainer`, `peft` и `bitsandbytes` 4-bit NF4 под 8GB VRAM (NVIDIA RTX 4060).
+
+### 3. Результаты и верификация
+- Тестовый набор: **28/28 passed** (`python -m pytest tests/ -v`).

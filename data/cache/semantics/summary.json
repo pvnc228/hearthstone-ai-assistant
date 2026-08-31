@@ -1,0 +1,10 @@
+{
+  "cards": 8661,
+  "source_cards": 11589,
+  "excluded_special_mode_cards": 2928,
+  "exclude_special_modes": true,
+  "collectible_cards": 6154,
+  "derived_cards": 2207,
+  "derived_edges": 6069,
+  "captions": 6149
+}

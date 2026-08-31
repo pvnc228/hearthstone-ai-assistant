@@ -8,7 +8,7 @@ from .enums import CardType, CardClass, SpellSchool
 from .models import Card
 
 
-def format_card(card: Card, lang: str = "ru") -> str:
+def format_card(card: Card, lang: str = "ru", token_graph=None, card_db=None) -> str:
     """
     Formats a card into a comprehensive, human-readable semantic string.
     Example:
@@ -60,15 +60,23 @@ def format_card(card: Card, lang: str = "ru") -> str:
     mechanics_list = card.mechanics_ru if lang == "ru" else card.mechanics
     mech_str = ", ".join(m for m in mechanics_list if not m.startswith("Турист"))
 
+    # Token summary if available
+    token_str = ""
+    if token_graph and card_db:
+        token_str = token_graph.format_token_summary(card, card_db, lang=lang)
+
     header = f"{name} [{', '.join(details)}]"
+    res = header
     if mech_str and text:
-        return f"{header}: {mech_str}. {text}"
+        res = f"{header}: {mech_str}. {text}"
     elif mech_str:
-        return f"{header}: {mech_str}"
+        res = f"{header}: {mech_str}"
     elif text:
-        return f"{header}: {text}"
-    else:
-        return header
+        res = f"{header}: {text}"
+
+    if token_str:
+        res = f"{res} {token_str}"
+    return res
 
 
 def format_card_compact(card: Card, lang: str = "ru") -> str:

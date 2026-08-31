@@ -20,10 +20,13 @@ from .enums import (
 from .formatter import format_board_minion, format_card, format_card_compact
 from .indexer import CardDatabase
 from .models import Card
+from .token_graph import CardSemantics, TokenGraph
 
 __all__ = [
     "Card",
     "CardDatabase",
+    "TokenGraph",
+    "CardSemantics",
     "CardType",
     "CardClass",
     "Race",
