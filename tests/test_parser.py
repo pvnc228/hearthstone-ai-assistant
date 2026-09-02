@@ -129,6 +129,12 @@ def test_snapshot_dedup_and_actions_resolution():
 
     # SHOW_ENTITY backfill: play recorded as UNKNOWN, card revealed mid-block
     tracker.process_event(
+        ev("TAG", entity_id=43, tag="CONTROLLER", value="1")
+    )
+    tracker.process_event(
+        ev("TAG", entity_id=43, tag="CARDTYPE", value="SPELL")
+    )
+    tracker.process_event(
         ev(
             "BLOCK_START",
             block_type="PLAY",
@@ -144,6 +150,53 @@ def test_snapshot_dedup_and_actions_resolution():
     assert len(acts) == 1
     assert acts[0].entity_card_id == "CS2_029"
     assert acts[0].entity_name == "Огненный шар"
+
+
+def test_named_current_player_and_action_controller_are_resolved():
+    """Regression: named CURRENT_PLAYER refs must switch turns, and actions
+    without a confirmed controller must not enter the active turn."""
+
+    def ev(etype, **data):
+        return type("E", (), {"event_type": etype, "data": data, "raw_line": ""})()
+
+    tracker = GameStateTracker(
+        card_db=CardDatabase(auto_load=True),
+        friendly_player_name="HappyBread#21597",
+    )
+    tracker.process_event(ev("CREATE_GAME"))
+    tracker.process_event(ev("GAME_ENTITY", entity_id=1))
+    tracker.process_event(ev("PLAYER_ENTITY", entity_id=2, player_id=1))
+    tracker.process_event(ev("PLAYER_ENTITY", entity_id=3, player_id=2))
+    tracker.process_event(
+        ev("PLAYER_NAME", player_id=2, player_name="UNKNOWN HUMAN PLAYER")
+    )
+    tracker.process_event(ev("TAG_CHANGE", entity={"id": 1}, tag="TURN", value="1"))
+    tracker.process_event(ev("TAG_CHANGE", entity={"id": 2}, tag="CURRENT_PLAYER", value="1"))
+    tracker.process_event(ev("TAG_CHANGE", entity={"id": 1}, tag="STEP", value="MAIN_ACTION"))
+
+    # The replay does not always emit PLAYER_NAME before this alias appears.
+    tracker.process_event(
+        ev(
+            "TAG_CHANGE",
+            entity={"name": "WINES#21976"},
+            tag="CURRENT_PLAYER",
+            value="1",
+        )
+    )
+    assert tracker.active_player_id == 2
+
+    # A PLAY block with no entity/controller proof is unsafe and must be ignored.
+    tracker.process_event(
+        ev(
+            "BLOCK_START",
+            block_type="PLAY",
+            entity={"id": 67},
+            target={"id": 0},
+            sub_option=-1,
+        )
+    )
+    tracker.finalize()
+    assert all(not snapshot.actions for snapshot in tracker.turn_snapshots)
 
 
 def test_deck_stats_index():

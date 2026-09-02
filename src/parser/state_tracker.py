@@ -258,6 +258,37 @@ class GameStateTracker:
                     return self.players[pid].entity_id
         return None
 
+    def _register_player_name_alias(self, name: str) -> None:
+        """Associates a replay player name with the only still-unmapped player."""
+        if not name or "#" not in name or name in self.player_id_by_name:
+            return
+
+        if self.friendly_player_name and (
+            name == self.friendly_player_name
+            or name in self.friendly_player_name
+            or self.friendly_player_name in name
+        ):
+            pid = self.friendly_player_id
+        else:
+            mapped_ids = set(self.player_id_by_name.values()) & set(self.players)
+            candidates = [
+                pid
+                for pid, player in self.players.items()
+                if pid not in mapped_ids
+                or (player.name and player.name.upper().startswith("UNKNOWN"))
+            ]
+            if len(candidates) != 1:
+                return
+            pid = candidates[0]
+
+            for alias, alias_pid in list(self.player_id_by_name.items()):
+                if alias_pid == pid and alias.upper().startswith("UNKNOWN"):
+                    del self.player_id_by_name[alias]
+
+        self.player_id_by_name[name] = pid
+        if pid in self.players:
+            self.players[pid].name = name
+
     def process_event(self, event: Any) -> None:
         """Processes a single PowerEvent."""
         etype = event.event_type
@@ -340,6 +371,7 @@ class GameStateTracker:
             # Auto-register player names
             ent_name = ent_ref.get("name")
             if ent_name and "#" in ent_name:
+                self._register_player_name_alias(ent_name)
                 if tag == "PLAYER_ID" and val.isdigit():
                     pid = int(val)
                     self.player_id_by_name[ent_name] = pid
@@ -481,6 +513,12 @@ class GameStateTracker:
 
         ent = self.entities.get(eid) if eid else None
         target_ent = self.entities.get(target_eid) if target_eid else None
+
+        # Never attribute an action to the active player without controller proof.
+        if btype in ("PLAY", "ATTACK") and (
+            ent is None or ent.controller == 0 or ent.controller != self.active_player_id
+        ):
+            return
 
         ent_name = ent.name if ent else ent_ref.get("entityName", "")
         ent_card_id = ent.card_id if ent else ent_ref.get("cardId", "")

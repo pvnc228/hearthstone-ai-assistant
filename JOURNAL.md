@@ -113,3 +113,20 @@
 
 ### 3. Результаты и верификация
 - Тестовый набор: **28/28 passed** (`python -m pytest tests/ -v`).
+
+---
+
+## 2026-09-02 — Stage A: исправление владельца действия в replay parser
+
+### 1. Найденная первопричина
+- В части HDT-логов соперник сначала назывался `UNKNOWN HUMAN PLAYER`, а затем появлялся как реальный BattleTag (`WINES#21976`). Алиас не заменял placeholder в `player_id_by_name`, поэтому `CURRENT_PLAYER=1` не переключал `active_player_id` на игрока 2.
+- `BLOCK_START` ранее принимал `PLAY`/`ATTACK` без подтвержденного `CONTROLLER`, что позволяло ошибочно приписывать чужие действия текущему игроку.
+
+### 2. Исправление и доказательства
+- `src/parser/state_tracker.py`: замена placeholder-алиаса на реальное имя игрока и guard по `CONTROLLER` перед записью действия.
+- `tests/test_parser.py`: regression для именованного `CURRENT_PLAYER` и запрета действия без owner proof.
+- До фикса на baseline было **149** cross-class hero-power mismatch из **1 338** действий силы героя; после полного прогона **0** из **670**.
+- Проблемный replay `78a2ab60` после фикса содержит раздельный `active_player_id=2` для ходов Warlock; `Жизнеотвод` больше не попадает во friendly turns.
+- Проверки: `29 passed`; полный ranked-win slice: **549** игр, **3 049** records.
+
+Production `data/processed/train_actions.jsonl` пока не перезаписывался: текущий файл сохранен как baseline для отдельной регенерации и следующего аудита dataset ownership.
