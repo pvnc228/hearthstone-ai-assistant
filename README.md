@@ -15,13 +15,14 @@
    - Анализ эффективности использования маны и кривой темпа.
    - Сравнение фактических действий игрока с рекомендациями локальной LLM.
 
-2. **Master Dataset Pipeline (Пайплайн данных)**:
+2. **Replay Dataset Pipeline (Пайплайн данных)**:
    - Парсинг локальной истории Hearthstone Deck Tracker (1 041 реплей).
-   - Автоматизированный загрузчик и XML-парсер матчей с HSReplay.net в обход WAF/Cloudflare (TLS-fingerprint impersonation).
-   - Формирование структурированного обучающего мастер-датасета на 7 486 ходов (`[Prompt -> Completion]`).
+   - Production next-action контракт: `state + replay-reported legal candidates -> chosen candidate ID`.
+   - Schema v2 содержит 12 840 принятых решений из 14 702; 1 862 решения с непроверенной Tradeable/mana/sub-option семантикой изолированы в quarantine. HSReplay и старый free-text master dataset не входят в текущий training-ready контур.
 
 3. **Deterministic Compliance Engine (Слой надежности)**:
    - Генератор легальных действий (Candidate Generator) с проверкой маны, провокаций (Taunt), заморозки, спячки (Dormant) и доступности сил героя.
+   - Spell-кандидаты не создаются, пока для live/coach пути нет проверенного target contract; replay dataset получает цели из игрового option oracle.
    - Отказоустойчивый парсер ответов малых моделей (Response Parser) с защитой от перерасхода маны и невалидных целей.
 
 4. **Локальный инференс без задержек**:
@@ -50,6 +51,7 @@ hearthstone-ai-assistant/
 │   │   ├── log_parser.py             # Потоковый разбор Power.log
 │   │   ├── state_tracker.py          # Трекер игрового состояния и TurnSnapshot
 │   │   ├── replay_reader.py          # Чтение архивов .hdtreplay и DeckStats.xml
+│   │   ├── next_action_dataset.py     # Schema-v2 state + candidates -> chosen ID
 │   │   ├── hsreplay_downloader.py    # Авторизованный загрузчик с HSReplay.net
 │   │   ├── hsreplay_xml_parser.py    # Парсер HearthSim .hsreplay.xml дерева
 │   │   ├── dataset_generator.py      # Генератор локального датасета
@@ -60,11 +62,15 @@ hearthstone-ai-assistant/
 │   └── llm/             # Интеграция с языковыми моделями
 │       ├── candidate_generator.py # Генератор легальных кандидатов
 │       ├── response_parser.py     # Отказоустойчивый парсер ответов модели
-│       └── ollama_client.py       # Клиент локального Ollama API
+│       ├── next_action_contract.py # Общий prompt/response contract schema v2
+│       ├── next_action_formatter.py # Frozen game-level splits и ChatML
+│       ├── evaluate_next_action.py # Base-model evaluator
+│       ├── train_qlora.py          # QLoRA trainer с schema-v2 guard
+│       └── ollama_client.py        # Клиент локального Ollama API
 ├── data/
-│   ├── processed/       # Сформированные датасеты (train_master_actions.jsonl)
+│   ├── processed/       # Turn baseline, schema-v2 next-action и quarantine
 │   └── cache/           # Кэши карт и индексы матчей
-└── tests/               # Юнит- и интеграционные тесты (16 тестов)
+└── tests/               # Юнит- и интеграционные тесты
 ```
 
 ---
@@ -86,6 +92,12 @@ hearthstone-ai-assistant/
 pip install -r requirements.txt
 ```
 
+Для QLoRA устанавливайте дополнительные зависимости только после проверки CUDA:
+```powershell
+pip install -r requirements-qlora.txt
+python -m src.llm.train_qlora --check-environment
+```
+
 ### 2. Запуск тестов
 ```powershell
 python -m pytest tests/ -v
@@ -101,14 +113,35 @@ python -m src.card_db.indexer
 python -m src.coach.cli --latest
 ```
 
-### 5. Сборка единого обучающего датасета
+### 5. Сборка production next-action датасета
 ```powershell
-python -m src.parser.build_master_dataset
+python -m src.parser.next_action_dataset
 ```
+
+Команда перезаписывает `train_next_actions.jsonl`, `train_next_actions_quarantine.jsonl` и `next_action_validation_report.json`. Наличие production-артефакта не означает готовность к QLoRA: актуальный verdict хранится в отчёте и сейчас равен `false`.
+
+### 6. Подготовка frozen QLoRA splits
+```powershell
+python -m src.llm.next_action_formatter
+python -m src.llm.train_qlora --validate-only
+python -m src.llm.train_qlora --check-environment
+```
+
+Formatter создаёт `next_action_split_manifest_v1.json` и четыре ChatML-файла: train, validation, test и temporal holdout. Manifest привязан к SHA-256 accepted schema-v2 датасета; его нельзя заменить без явного `--replace-manifest`.
+
+### 7. Base-model benchmark
+```powershell
+python -m src.llm.evaluate_next_action --input data/processed/next_action_test_chatml.jsonl --model qwen2.5:1.5b
+```
+
+Evaluator считает top-1 accuracy по `chosen_candidate_id`, корректность формата ответа, существование выбранного кандидата, latency и разбивку по типам действий. При недоступном Ollama команда завершится с ненулевым exit code и сохранит report со статусом `blocked`.
 
 ---
 
 ## Результаты бенчмарков
 
 - **Индексация карт**: 35 807 карт распарсено за 1.4 секунды, скорость поиска из памяти: > 20 млн lookups/sec.
-- **Объем мастер-датасета**: 7 486 ходов (9.97 MB) из 740+ победных матчей игрока на высоких рангах.
+- **Turn baseline**: 3 049 записей, 11 704 действия из 549 ranked-win replay; SHA-256 `2d9a0679e667510fe9eedfb062d226d574deef3b251f3f6d023f0ceb734a7736`.
+- **Next-action schema v2**: 12 840 accepted / 1 862 quarantine из 14 702 option decisions, coverage 87.3351%; accepted gate violations — 0.
+- **Frozen next-action splits**: 9 320 train / 1 198 validation / 1 117 test / 1 205 temporal holdout; 540 игр распределены без пересечений по `game_id`.
+- **Readiness status (2026-09-03)**: formatted schema-v2 artifacts and evaluator are ready; QLoRA remains blocked by missing `datasets`, `trl`, `bitsandbytes`, CPU-only PyTorch, and unavailable Ollama baseline.

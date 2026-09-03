@@ -129,4 +129,72 @@
 - Проблемный replay `78a2ab60` после фикса содержит раздельный `active_player_id=2` для ходов Warlock; `Жизнеотвод` больше не попадает во friendly turns.
 - Проверки: `29 passed`; полный ranked-win slice: **549** игр, **3 049** records.
 
-Production `data/processed/train_actions.jsonl` пока не перезаписывался: текущий файл сохранен как baseline для отдельной регенерации и следующего аудита dataset ownership.
+Production `data/processed/train_actions.jsonl` был перезаписан следующим Stage B/C прогоном; актуальные метрики приведены ниже.
+
+---
+
+## 2026-09-03 — Stage B/C: replay option oracle и next-action schema v2
+
+### 1. Реализация
+
+- `log_parser.py` разбирает `DebugPrintOptions`, `SendOption` и `CHANGE_ENTITY`.
+- `state_tracker.py` сохраняет pre-action snapshot, полный legal option set, выбранный `option/sub-option/target/position`, стабильные entity IDs и board position.
+- Исправлены board limit 7, hero attacks, immune/can't-be-attacked, Windfury/Mega-Windfury, Rush face restriction, dynamic hero-power cost и `END_TURN`.
+- `UNKNOWN ENTITY` больше не перекрывает имя CardDB при известном свежем `cardId`.
+- `next_action_dataset.py` потоково и атомарно пишет schema-v2 accepted/quarantine/report и повторно аудирует accepted-файл.
+
+### 2. Production-метрики
+
+- `train_actions.jsonl`: 3 049 turn records, 538 непустых уникальных `game_id`, 11 704 действия, SHA-256 `2d9a0679e667510fe9eedfb062d226d574deef3b251f3f6d023f0ceb734a7736`.
+- Источник schema v2: 549 ranked-win replay; option decisions присутствуют в 539 играх.
+- Всего option selections: 14 691; accepted: 12 829; quarantine: 1 862; coverage: 87.3256%.
+- Accepted action counts: `PLAY=5766`, `ATTACK=3400`, `END_TURN=2760`, `HERO_POWER=597`, `LOCATION=294`, `POWER=12`.
+- Quarantine: `tradeable_option_semantics_unproven=1725`, `candidate_mana_cost_mismatch=105`, `suboption_target_cross_product_unproven=32`.
+- Независимый JSONL-аудит: 12 829 уникальных accepted decisions, 539 games, violations `{}`; SHA-256 `2fa1e2c70c57f22847b0f18e9ff2d7914aef63bb15b0eb152a4a5b0dd0a4df0e`.
+
+### 3. Readiness
+
+- QLoRA readiness: `false`.
+- Блокеры: три quarantine-класса, 10 ranked replay без option decisions, незамороженные validation/test splits, неревалидированное training environment и отсутствующий base-model benchmark.
+- Обучение, установка ML-зависимостей, `ml-intern`, commit и push не выполнялись.
+
+### 4. Финальные проверки
+
+- Focused Stage B/C: `34 passed in 10.38s`, exit code 0.
+- Полный suite: `49 passed in 12.54s`, exit code 0.
+- `py -m compileall -q src`: exit code 0.
+- `git diff --check`: exit code 0; выведены только предупреждения о будущем преобразовании LF в CRLF.
+- Отдельная проверка modified/untracked source и docs: trailing whitespace не найден.
+- Независимый повторный review закрыл все четыре P1 и P2 finding после regression fixes; новых подтверждённых дефектов в проверенном scope не осталось.
+- Все `.pytest-tmp-*` разрешены внутри корня репозитория, но два вызова `Remove-Item -Recurse -Force` отклонены execution policy; каталоги остались как неотслеживаемые временные файлы.
+
+---
+
+## 2026-09-03 — Readiness Stage D: frozen splits, shared contract и evaluator
+
+### 1. Реализовано
+
+- `src/llm/next_action_contract.py` вынес общий state/candidates prompt и строгий `PLAN: [candidate_id]` response contract.
+- `src/coach/analyzer.py` использует тот же prompt builder, что и schema-v2 formatter.
+- `src/llm/next_action_formatter.py` создает immutable-by-default manifest с hash-lock исходного accepted JSONL и game-level train/validation/test/temporal holdout.
+- `src/llm/train_qlora.py` больше не принимает legacy free-text конфигурацию; `--validate-only` проверяет schema-v2, prompt/completion и принадлежность frozen split.
+- `src/llm/evaluate_next_action.py` добавляет Ollama base-model benchmark с top-1, форматом, candidate existence, latency и action breakdown.
+
+### 2. Артефакты
+
+- `next_action_split_manifest_v1.json`: 540 игр, 12 840 accepted records, SHA-256 исходного accepted JSONL `49d5a8163d77d7aef8a158ba69d9c4850dce84911d5b8a44d28c4e8235e6e3df`.
+- Formatted files: train `9320`, validation `1198`, test `1117`, temporal holdout `1205` records.
+- Quarantine в первой версии формально исключен политикой manifest: `accepted schema-v2 only`.
+- После lazy-snapshot correction один replay без marker перехода хода восстановлен: текущая coverage — 12 840 accepted из 14 702 option selections (`87.3351%`); девять ranked-win replay по-прежнему не содержат `DebugPrintOptions`/`SendOption`.
+
+### 3. Проверки и фактические блокеры
+
+- Full suite: `57 passed in 13.29s`, exit code 0.
+- `py -m compileall -q src`: exit code 0.
+- `git diff --check`: exit code 0; только LF/CRLF warnings.
+- `py -m src.llm.train_qlora --validate-only`: train `9320/390 games`, eval `1198/48 games`, test `1117/48 games`, temporal `1205/54 games`.
+- `py -m src.llm.train_qlora --check-environment`: `datasets`, `trl`, `bitsandbytes` отсутствуют; `torch 2.9.0+cpu`, CUDA unavailable; `qlora_ready=false`.
+- Base-model smoke против `qwen2.5:1.5b`: Ollama `127.0.0.1:11434` timeout; report status `blocked`, exit code non-zero.
+- QLoRA smoke: корректно остановлен с exit code 1 до загрузки модели из-за отсутствующих ML-зависимостей.
+
+Обучение, установка зависимостей, commit и push не выполнялись.

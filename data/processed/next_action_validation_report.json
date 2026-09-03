@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "generated_at_utc": "2026-09-03T00:39:10.031807+00:00",
+  "source": {
+    "replay_directory": "C:\\Users\\mist8\\AppData\\Roaming\\HearthstoneDeckTracker\\Replays",
+    "filter": "Ranked wins; local HDT only",
+    "games": 549,
+    "games_with_option_decisions": 540,
+    "legality_source": "GameState.DebugPrintOptions error=NONE + GameState.SendOption selection",
+    "turn_dataset_path": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\train_actions.jsonl",
+    "turn_dataset_sha256": "2d9a0679e667510fe9eedfb062d226d574deef3b251f3f6d023f0ceb734a7736",
+    "carddefs_base_sha256": "0f5c6d4d07db4904a1d5b63d9862cd1bf49df536f31ab325d36c778bc0a67f7a",
+    "carddefs_play_requirements_available": false
+  },
+  "decisions": {
+    "legacy_friendly_action_and_end_turn_count": 14586,
+    "option_selections_total": 14702,
+    "accepted": 12840,
+    "quarantined": 1862,
+    "coverage": 0.8733505645490409,
+    "positioned_selections": 2632,
+    "accepted_action_counts": {
+      "ATTACK": 3406,
+      "END_TURN": 2762,
+      "HERO_POWER": 598,
+      "LOCATION": 294,
+      "PLAY": 5768,
+      "POWER": 12
+    },
+    "quarantined_action_counts": {
+      "ATTACK": 510,
+      "END_TURN": 116,
+      "HERO_POWER": 75,
+      "LOCATION": 9,
+      "PLAY": 1139,
+      "UNRESOLVED": 13
+    },
+    "quarantine_reasons": {
+      "candidate_mana_cost_mismatch": 105,
+      "suboption_target_cross_product_unproven": 32,
+      "tradeable_option_semantics_unproven": 1725
+    },
+    "duplicate_game_ids": [],
+    "accepted_gate_violations": {}
+  },
+  "artifacts": {
+    "dataset": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\train_next_actions.jsonl",
+    "dataset_sha256": "49d5a8163d77d7aef8a158ba69d9c4850dce84911d5b8a44d28c4e8235e6e3df",
+    "quarantine": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\train_next_actions_quarantine.jsonl",
+    "quarantine_sha256": "8f6dae80714866ee72d9ae0ea5d839b303f8886ffc93a2c468e8e9a22f89b85b"
+  },
+  "stage_b": {
+    "board_limit": 7,
+    "stable_entity_ids": true,
+    "board_position_in_candidate_id": true,
+    "end_turn_candidate": true,
+    "windfury_attack_budget": true,
+    "target_legality_from_replay_options": true,
+    "all_candidate_mana_gate": true,
+    "tradeable_options_quarantined": true,
+    "single_writer_lock": true,
+    "report_manifest_published_last": true,
+    "carddefs_target_requirements_complete": false
+  },
+  "qlora_ready": false,
+  "blockers": [
+    "quarantined_option_decisions_present",
+    "ranked_games_without_option_decisions",
+    "validation_and_test_splits_not_frozen",
+    "training_environment_not_revalidated",
+    "base_model_benchmark_not_ready"
+  ]
+}

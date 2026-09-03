@@ -19,7 +19,9 @@
 ## Фаза 2: Экстрактор реплеев и датасет (Replay Pipeline)
 - [x] 🟢 **2.1. Unzip & Log Streamer**: Модуль `src/parser/replay_reader.py` для потокового чтения `output_log.txt` из `.hdtreplay` без распаковки на диск.
 - [x] 🟢 **2.2. GameState Tracker**: Детерминированный восстановитель состояния игры `src/parser/state_tracker.py` (ход, мана, здоровье героев, стол, рука игрока, сыгранные карты и цели атак).
-- [x] 🟢 **2.3. Dataset Generator**: Пакетный генератор `src/parser/dataset_generator.py`: извлечено 5 174 обучающих пар `[State -> Action]` из 525 победных Ranked-матчей -> `data/processed/train_actions.jsonl` (7.41 MB).
+- [x] 🟢 **2.3. Turn Dataset Generator**: Production `src/parser/dataset_generator.py` перегенерировал 3 049 turn records с 11 704 действиями из 549 победных Ranked replay -> `data/processed/train_actions.jsonl`.
+- [x] 🟢 **2.4. Replay Option Oracle**: Парсятся `DebugPrintOptions`, `SendOption` и `CHANGE_ENTITY`; state tracker сохраняет pre-action snapshot, полный `error=NONE` candidate set и выбранный tuple с entity/target/sub-option/position IDs.
+- [x] 🟢 **2.5. Next-action schema v2**: `src/parser/next_action_dataset.py` создал 12 840 accepted и 1 862 quarantine из 14 702 option decisions (87.3351% coverage); accepted gate violations — 0.
 
 ---
 
@@ -38,6 +40,11 @@
 ---
 
 ## Фаза 5: Персонализация и Fine-Tuning (QLoRA)
-- [x] 🟢 **5.1. Подготовка датасета под QLoRA**: Модуль `src/llm/dataset_formatter.py` — генерация ChatML / Alpaca (`sft_train_chatml.jsonl` 4 677 пар, `sft_eval_chatml.jsonl` 497 пар с разделением по матчам).
-- [x] 🟢 **5.2. QLoRA пайплайн обучения на RTX 4060**: Скрипт `src/llm/train_qlora.py` и конфиг `configs/qlora_config.json` (4-bit NF4, LoRA r=16, alpha=32, target_modules=all-linear, SFTTrainer).
-- [ ] ⚪ **5.3. Запуск полного обучения и экспорт**: Дообучение LoRA адаптера поверх Qwen-2.5-7B и конвертация в Ollama Modelfile.
+- [x] 🟡 **5.1. Legacy SFT artifacts**: Старые free-text ChatML/Alpaca файлы созданы, но исключены из training-ready контура из-за несовпадения с production `PLAN: [индексы]` контрактом.
+- [x] 🟢 **5.2. Production next-action artifact**: Schema v2 использует `state + legal candidates -> chosen candidate ID`; 1 862 decisions с непроверенной Tradeable/mana/sub-option семантикой остаются в quarantine.
+- [x] 🟡 **5.3. QLoRA код**: `src/llm/train_qlora.py` и `configs/qlora_config.json` существуют, но training environment после аудита не ревалидирован.
+- [x] 🟢 **5.4a. Frozen schema-v2 splits**: Создан `next_action_split_manifest_v1.json`; 540 игр распределены без пересечений на train/validation/test/temporal holdout, исходный accepted JSONL закреплен SHA-256.
+- [x] 🟢 **5.4b. Schema-v2 formatter и trainer guard**: Общий prompt-контракт подключен к `MatchCoach`, ChatML formatter и QLoRA trainer; trainer отбрасывает legacy free-text config и проверяет manifest membership.
+- [x] 🟢 **5.4c. Base-model evaluator**: Добавлен evaluator top-1/format/existence/latency с разбиением по типам действий; smoke подтвердил блокировку при недоступном Ollama.
+- [ ] 🔴 **5.4d. Remaining readiness gates**: Проверить state transitions/dynamic costs, классифицировать 9 replay без option-событий, восстановить QLoRA-зависимости/CUDA/NF4 и выполнить полный baseline; quarantine для первого пилота исключен формальной политикой manifest.
+- [ ] ⚪ **5.5. Запуск полного обучения и экспорт**: Только после readiness gates; обучение и экспорт сейчас не выполнялись.

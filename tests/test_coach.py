@@ -51,9 +51,9 @@ def test_candidate_generator_taunt_and_mana():
     taunt_attacks = [c for c in candidates if c.action_type == "ATTACK" and "Псарь" in c.description]
     assert len(taunt_attacks) == 1
 
-    # 3. Check that 2-mana Frostbolt is playable, but 4-mana Fireball is NOT playable
+    # 3. Spell targets are not offered without a verified target contract.
     frostbolt_plays = [c for c in candidates if c.action_type == "PLAY" and "Ледяная стрела" in c.description]
-    assert len(frostbolt_plays) > 0
+    assert len(frostbolt_plays) == 0
 
     fireball_plays = [c for c in candidates if c.action_type == "PLAY" and "Огненный шар" in c.description]
     assert len(fireball_plays) == 0
@@ -222,3 +222,149 @@ def test_stealthed_enemies_not_attackable():
     assert not any(c.action_type == "ATTACK" and "Атака в лицо" not in c.description for c in candidates)
     assert not any("Маскировщик" in (c.description or "") for c in candidates)
     assert not any("Спящий" in (c.description or "") for c in candidates)
+
+
+def test_candidate_ids_board_limit_hero_attack_and_end_turn():
+    db = CardDatabase()
+    snap = TurnSnapshot(
+        turn_number=6,
+        active_player_id=1,
+        active_player_name="x",
+        is_friendly_turn=True,
+        friendly_mana=10,
+        friendly_max_mana=10,
+        friendly_hero={
+            "entity_id": 2,
+            "card_id": "HERO_03",
+            "name": "Rogue",
+            "health": 30,
+            "armor": 0,
+            "attack": 2,
+            "can_attack": True,
+        },
+        opponent_hero={
+            "entity_id": 3,
+            "card_id": "HERO_08",
+            "name": "Mage",
+            "health": 20,
+            "armor": 0,
+        },
+        friendly_hand=[
+            {
+                "entity_id": 100,
+                "card_id": "EX1_116",
+                "name": "Лирой Дженкинс",
+                "cost": 5,
+                "card_type": 4,
+            }
+        ],
+        friendly_board=[
+            {
+                "entity_id": idx,
+                "name": f"Существо {idx}",
+                "attack": 1,
+                "health": 1,
+                "can_attack": False,
+            }
+            for idx in range(10, 17)
+        ],
+        opponent_board=[],
+        friendly_locations=[],
+        opponent_locations=[],
+        friendly_secrets=[],
+        opponent_secrets_count=0,
+        opponent_hand_count=0,
+    )
+
+    candidates = generate_legal_candidates(snap, db)
+    assert not any(c.action_type == "PLAY" and c.entity_id == 100 for c in candidates)
+    hero_attack = next(c for c in candidates if c.action_type == "ATTACK")
+    assert hero_attack.entity_id == 2
+    assert hero_attack.target_entity_id == 3
+    assert candidates[-1].action_type == "END_TURN"
+
+
+def test_board_limit_counts_friendly_locations():
+    db = CardDatabase()
+    snap = TurnSnapshot(
+        turn_number=6,
+        active_player_id=1,
+        active_player_name="x",
+        is_friendly_turn=True,
+        friendly_mana=10,
+        friendly_max_mana=10,
+        friendly_hero={"health": 30, "armor": 0, "name": "Rogue"},
+        opponent_hero={"health": 30, "armor": 0, "name": "Mage"},
+        friendly_hand=[
+            {
+                "entity_id": 100,
+                "card_id": "EX1_116",
+                "name": "Лирой Дженкинс",
+                "cost": 5,
+                "card_type": 4,
+            }
+        ],
+        friendly_board=[
+            {
+                "entity_id": idx,
+                "name": f"Существо {idx}",
+                "attack": 1,
+                "health": 1,
+                "can_attack": False,
+            }
+            for idx in range(10, 16)
+        ],
+        opponent_board=[],
+        friendly_locations=[
+            {"entity_id": 200, "card_id": "CATA_301", "name": "Локация"}
+        ],
+        opponent_locations=[],
+        friendly_secrets=[],
+        opponent_secrets_count=0,
+        opponent_hand_count=0,
+    )
+
+    candidates = generate_legal_candidates(snap, db)
+
+    assert not any(c.action_type == "PLAY" and c.entity_id == 100 for c in candidates)
+
+
+def test_spells_without_verified_target_contract_get_no_play_candidates():
+    db = CardDatabase()
+    snap = TurnSnapshot(
+        turn_number=6,
+        active_player_id=1,
+        active_player_name="x",
+        is_friendly_turn=True,
+        friendly_mana=10,
+        friendly_max_mana=10,
+        friendly_hero={"health": 30, "armor": 0, "name": "Mage"},
+        opponent_hero={"entity_id": 3, "health": 30, "armor": 0, "name": "Hunter"},
+        friendly_hand=[
+            {
+                "entity_id": 101,
+                "card_id": "ETC_COIN1",
+                "name": "Монетка",
+                "cost": 0,
+                "card_type": 5,
+            },
+            {
+                "entity_id": 102,
+                "card_id": "UNVERIFIED_SPELL",
+                "name": "Неразрешённое заклинание",
+                "cost": 0,
+                "card_type": 5,
+            },
+        ],
+        friendly_board=[],
+        opponent_board=[],
+        friendly_locations=[],
+        opponent_locations=[],
+        friendly_secrets=[],
+        opponent_secrets_count=0,
+        opponent_hand_count=0,
+    )
+
+    candidates = generate_legal_candidates(snap, db)
+
+    assert not any(c.action_type == "PLAY" and c.entity_id in {101, 102} for c in candidates)

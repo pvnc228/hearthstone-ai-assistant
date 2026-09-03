@@ -1,0 +1,25 @@
+{
+  "backend": "ollama",
+  "model": "qwen2.5:1.5b",
+  "metrics": {
+    "total": 0,
+    "top1_accuracy": 0.0,
+    "format_valid_rate": 0.0,
+    "candidate_exists_rate": 0.0,
+    "latency_ms": {
+      "mean": 0.0,
+      "p50": 0.0,
+      "max": 0.0
+    },
+    "by_action_type": {}
+  },
+  "errors": [
+    {
+      "decision_id": "7223c947-5dde-44b7-ae22-72e411295f02:option:0001",
+      "error": "ConnectionError: Failed to communicate with Ollama at http://127.0.0.1:11434: <urlopen error timed out>"
+    }
+  ],
+  "status": "blocked",
+  "input": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\next_action_test_chatml.jsonl",
+  "records_requested": 1
+}

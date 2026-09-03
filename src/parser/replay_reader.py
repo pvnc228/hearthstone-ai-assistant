@@ -9,11 +9,11 @@ import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, Iterable, List, Optional
 
 from src.card_db import CardDatabase
 from .log_parser import parse_power_log_lines
-from .state_tracker import GameStateTracker, TurnSnapshot
+from .state_tracker import DecisionPoint, GameStateTracker, OptionDecision, TurnSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,8 @@ class GameMetadata:
 class GameReplay:
     metadata: GameMetadata
     turn_snapshots: List[TurnSnapshot] = field(default_factory=list)
+    decision_points: List[DecisionPoint] = field(default_factory=list)
+    option_decisions: List[OptionDecision] = field(default_factory=list)
 
     @property
     def friendly_turns(self) -> List[TurnSnapshot]:
@@ -100,6 +102,20 @@ def load_deck_stats_index(deck_stats_path: Optional[Path | str] = None) -> Dict[
     return index
 
 
+def _iter_decoded_log_lines(raw_lines: Iterable[bytes]) -> Generator[str, None, None]:
+    """Decodes normal HDT lines and the escaped-newline single-line variant."""
+    for raw_line in raw_lines:
+        text = raw_line.decode("utf-8", errors="replace")
+        # Some HDT exports serialize the whole log as one physical line while
+        # retaining literal ``\\n`` separators. Normalize only that shape;
+        # normal log lines may legitimately contain backslash characters.
+        if "\\n" in text and text.count("\n") <= 1:
+            text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+            yield from text.splitlines(keepends=True)
+        else:
+            yield text
+
+
 def parse_replay_file(
     replay_path: Path | str,
     card_db: Optional[CardDatabase] = None,
@@ -130,11 +146,7 @@ def parse_replay_file(
 
         with zf.open("output_log.txt", "r") as log_file:
 
-            def line_generator():
-                for raw_line in log_file:
-                    yield raw_line.decode("utf-8", errors="replace")
-
-            for event in parse_power_log_lines(line_generator()):
+            for event in parse_power_log_lines(_iter_decoded_log_lines(log_file)):
                 tracker.process_event(event)
 
     tracker.finalize()
@@ -142,6 +154,8 @@ def parse_replay_file(
     return GameReplay(
         metadata=metadata,
         turn_snapshots=tracker.turn_snapshots,
+        decision_points=tracker.decision_points,
+        option_decisions=tracker.option_decisions,
     )
 
 
@@ -160,7 +174,7 @@ def iterate_replays(
     db = card_db or CardDatabase(auto_load=True)
 
     count = 0
-    for file_path in r_dir.glob("*.hdtreplay"):
+    for file_path in sorted(r_dir.glob("*.hdtreplay"), key=lambda path: path.name.casefold()):
         meta = deck_stats.get(file_path.name)
         if filter_ranked_wins:
             if not meta or meta.result != "Win" or meta.game_mode != "Ranked":

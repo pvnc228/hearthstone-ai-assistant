@@ -138,20 +138,32 @@ class Entity:
 
     @property
     def can_attack(self) -> bool:
-        if self.zone != "PLAY" or self.is_frozen or self.is_dormant:
+        if self.zone != "PLAY" or self.is_frozen or self.is_dormant or self.get_tag("CANT_ATTACK", 0) == 1:
             return False
         if self.attack <= 0:
             return False
         if not (not self.is_exhausted or self.get_tag("CHARGE", 0) == 1 or self.get_tag("RUSH", 0) == 1):
             return False
-        # Attack budget: 1 normally, 2 with Windfury
-        max_attacks = 2 if self.get_tag("WINDFURY", 0) == 1 else 1
+        # Attack budget: 1 normally, 2 with Windfury, 4 with Mega-Windfury.
+        if self.get_tag("MEGA_WINDFURY", 0) == 1:
+            max_attacks = 4
+        elif self.get_tag("WINDFURY", 0) == 1:
+            max_attacks = 2
+        else:
+            max_attacks = 1
         return self.num_attacks_this_turn < max_attacks
 
     @property
     def can_attack_hero(self) -> bool:
-        """RUSH minions can only attack minions, never the enemy hero."""
-        return self.can_attack and self.get_tag("RUSH", 0) != 1
+        """Fresh Rush minions cannot hit heroes; the restriction expires next turn."""
+        if not self.can_attack or self.get_tag("CANT_ATTACK_HEROES", 0) == 1:
+            return False
+        is_fresh_rush = (
+            self.get_tag("RUSH", 0) == 1
+            and self.get_tag("CHARGE", 0) != 1
+            and self.get_tag("NUM_TURNS_IN_PLAY", 0) == 0
+        )
+        return not is_fresh_rush
 
     @property
     def num_attacks_this_turn(self) -> int:
@@ -211,6 +223,55 @@ class TurnSnapshot:
     actions: List[PlayerAction] = field(default_factory=list)
 
 
+@dataclass
+class DecisionPoint:
+    """Immutable state immediately before one player-controlled action."""
+
+    sequence: int
+    snapshot: TurnSnapshot
+    action: PlayerAction
+
+
+@dataclass
+class ReplayOptionCandidate:
+    """One legal option/target combination reported by DebugPrintOptions."""
+
+    candidate_id: int
+    option_id: int
+    option_type: str
+    action_type: str
+    entity_id: Optional[int]
+    entity_name: str
+    entity_card_id: str
+    entity_card_type: int = 0
+    controller_id: int = 0
+    target_entity_id: Optional[int] = None
+    target_name: Optional[str] = None
+    target_card_id: Optional[str] = None
+    sub_option_id: int = -1
+    sub_entity_id: Optional[int] = None
+    sub_entity_name: Optional[str] = None
+    sub_entity_card_id: Optional[str] = None
+    position: int = 0
+    mana_cost: int = 0
+    is_tradeable: bool = False
+    description: str = ""
+
+
+@dataclass
+class OptionDecision:
+    """State and complete legal options immediately before SendOption."""
+
+    sequence: int
+    options_id: int
+    snapshot: TurnSnapshot
+    candidates: List[ReplayOptionCandidate]
+    selected_option: int
+    selected_sub_option: int
+    selected_target: Optional[int]
+    selected_position: int
+
+
 class GameStateTracker:
     """
     State machine that processes PowerEvents, updates game entities,
@@ -232,16 +293,36 @@ class GameStateTracker:
         self.game_over: bool = False
 
         self.turn_snapshots: List[TurnSnapshot] = []
+        self.decision_points: List[DecisionPoint] = []
+        self.option_decisions: List[OptionDecision] = []
         self._current_snapshot: Optional[TurnSnapshot] = None
         self._actions_this_turn: List[PlayerAction] = []
         self._pending_turn_transition: bool = False
         # entity_id -> [(kind, PlayerAction)]: actions awaiting SHOW_ENTITY name backfill
         self._unresolved_actions: Dict[int, List[tuple]] = {}
+        self._last_end_turn_key: Optional[Tuple[int, int]] = None
+        self._current_options_id: int = 0
+        self._current_options: Dict[int, Dict[str, Any]] = {}
+        self._current_option_id: Optional[int] = None
 
     def get_or_create_entity(self, entity_id: int) -> Entity:
         if entity_id not in self.entities:
             self.entities[entity_id] = Entity(entity_id=entity_id)
         return self.entities[entity_id]
+
+    def _set_entity_card(self, entity: Entity, card_id: str) -> None:
+        """Applies a reveal/transform without leaking type or cost from the old card."""
+        if not card_id:
+            return
+        if entity.card_id != card_id:
+            entity.card_id = card_id
+            entity.name = ""
+            entity.tags.pop("CARDTYPE", None)
+            entity.tags.pop("COST", None)
+        card_info = self.card_db.get_by_id(card_id)
+        if card_info:
+            entity.name = card_info.name_ru or card_info.name_en
+            entity.tags["CARDTYPE"] = int(card_info.card_type)
 
     def _resolve_entity_id(self, ent_ref: Dict[str, Any]) -> Optional[int]:
         if not ent_ref:
@@ -298,6 +379,8 @@ class GameStateTracker:
             self.entities.clear()
             self.players.clear()
             self.turn_snapshots.clear()
+            self.decision_points.clear()
+            self.option_decisions.clear()
             self.player_id_by_name = {"GameEntity": 1}
             self.current_turn = 0
             self.game_over = False
@@ -305,6 +388,10 @@ class GameStateTracker:
             self._current_snapshot = None
             self._actions_this_turn.clear()
             self._unresolved_actions.clear()
+            self._last_end_turn_key = None
+            self._current_options_id = 0
+            self._current_options.clear()
+            self._current_option_id = None
 
         elif etype == "GAME_ENTITY":
             self.game_entity_id = data.get("entity_id", 1)
@@ -332,13 +419,7 @@ class GameStateTracker:
             eid = data["entity_id"]
             cid = data.get("card_id", "")
             ent = self.get_or_create_entity(eid)
-            if cid:
-                ent.card_id = cid
-                card_info = self.card_db.get_by_id(cid)
-                if card_info:
-                    ent.name = card_info.name_ru or card_info.name_en
-                    if "CARDTYPE" not in ent.tags:
-                        ent.tags["CARDTYPE"] = int(card_info.card_type)
+            self._set_entity_card(ent, cid)
 
         elif etype == "SHOW_ENTITY":
             ent_ref = data.get("entity", {})
@@ -346,13 +427,15 @@ class GameStateTracker:
             cid = data.get("card_id", "")
             if eid:
                 ent = self.get_or_create_entity(eid)
-                if cid:
-                    ent.card_id = cid
-                    card_info = self.card_db.get_by_id(cid)
-                    if card_info:
-                        ent.name = card_info.name_ru or card_info.name_en
-                        if "CARDTYPE" not in ent.tags:
-                            ent.tags["CARDTYPE"] = int(card_info.card_type)
+                self._set_entity_card(ent, cid)
+                self._refresh_unresolved_actions(eid, ent)
+
+        elif etype == "CHANGE_ENTITY":
+            ent_ref = data.get("entity", {})
+            eid = self._resolve_entity_id(ent_ref)
+            if eid:
+                ent = self.get_or_create_entity(eid)
+                self._set_entity_card(ent, data.get("card_id", ""))
                 self._refresh_unresolved_actions(eid, ent)
 
         elif etype == "TAG":
@@ -382,8 +465,8 @@ class GameStateTracker:
 
             if eid:
                 ent = self.get_or_create_entity(eid)
-                if "cardId" in ent_ref and ent_ref["cardId"] and not ent.card_id:
-                    ent.card_id = ent_ref["cardId"]
+                if ent_ref.get("cardId") and ent_ref["cardId"] != ent.card_id:
+                    self._set_entity_card(ent, ent_ref["cardId"])
                 if "entityName" in ent_ref and ent_ref["entityName"] and not ent.name:
                     ent.name = ent_ref["entityName"]
                 if not ent.name and ent.card_id:
@@ -395,6 +478,29 @@ class GameStateTracker:
 
                 ent.tags[tag] = int(val) if val.isdigit() or (val.startswith("-") and val[1:].isdigit()) else val
                 self._handle_tag_update(ent, tag, val)
+
+        elif etype == "OPTIONS_START":
+            self._current_options_id = data.get("options_id", 0)
+            self._current_options = {}
+            self._current_option_id = None
+
+        elif etype == "OPTION":
+            option_id = data["option_id"]
+            self._current_options[option_id] = {
+                **data,
+                "targets": [],
+                "sub_options": [],
+            }
+            self._current_option_id = option_id
+
+        elif etype == "OPTION_TARGET" and self._current_option_id in self._current_options:
+            self._current_options[self._current_option_id]["targets"].append(data)
+
+        elif etype == "OPTION_SUB_OPTION" and self._current_option_id in self._current_options:
+            self._current_options[self._current_option_id]["sub_options"].append(data)
+
+        elif etype == "SEND_OPTION":
+            self._record_option_decision(data)
 
         elif etype == "BLOCK_START":
             self._handle_block_start(data)
@@ -458,7 +564,9 @@ class GameStateTracker:
 
         elif tag == "STEP" and ent.entity_id == self.game_entity_id:
             step_name = str(val)
-            if step_name == "MAIN_ACTION":
+            if step_name == "MAIN_END":
+                self._record_end_turn_decision()
+            elif step_name == "MAIN_ACTION":
                 # A new turn officially starts at MAIN_ACTION: turn draw / mana
                 # refresh have resolved, so the snapshot reflects reality.
                 if self._pending_turn_transition:
@@ -549,10 +657,16 @@ class GameStateTracker:
                 entity_card_id=ent_card_id,
                 target_name=target_name,
                 target_card_id=target_card_id,
-                details={"sub_option": data.get("sub_option", -1), "_entity_id": eid, "_target_entity_id": target_eid},
+                details={
+                    "sub_option": data.get("sub_option", -1),
+                    "_entity_id": eid,
+                    "_target_entity_id": target_eid,
+                    "controller_id": ent.controller if ent else 0,
+                },
             )
             self._actions_this_turn.append(action)
             self._index_action_refs(action)
+            self._record_decision(action)
 
         elif btype == "ATTACK":
             action = PlayerAction(
@@ -562,10 +676,224 @@ class GameStateTracker:
                 entity_card_id=ent_card_id,
                 target_name=target_name or "Target",
                 target_card_id=target_card_id,
-                details={"_entity_id": eid, "_target_entity_id": target_eid},
+                details={
+                    "_entity_id": eid,
+                    "_target_entity_id": target_eid,
+                    "controller_id": ent.controller if ent else 0,
+                },
             )
             self._actions_this_turn.append(action)
             self._index_action_refs(action)
+            self._record_decision(action)
+
+    def _record_decision(self, action: PlayerAction) -> None:
+        """Stores a fresh snapshot before replay events mutate action state."""
+        if self.current_turn < 1 or self._current_snapshot is None:
+            return
+        self.decision_points.append(
+            DecisionPoint(
+                sequence=len(self.decision_points) + 1,
+                snapshot=self.take_turn_snapshot(),
+                action=action,
+            )
+        )
+
+    def _record_end_turn_decision(self) -> None:
+        """Records the explicit player pass at STEP=MAIN_END once per turn."""
+        key = (self.current_turn, self.active_player_id)
+        if self.current_turn < 1 or self._current_snapshot is None or key == self._last_end_turn_key:
+            return
+        action = PlayerAction(
+            turn=self.current_turn,
+            action_type="END_TURN",
+            entity_name="END_TURN",
+            entity_card_id="",
+            details={"_entity_id": None, "_target_entity_id": None, "controller_id": self.active_player_id},
+        )
+        self._record_decision(action)
+        self._last_end_turn_key = key
+
+    def _option_entity(self, ref: Dict[str, Any]) -> Tuple[Optional[int], str, str, Optional[Entity]]:
+        entity_id = self._resolve_entity_id(ref)
+        entity = self.entities.get(entity_id) if entity_id else None
+        ref_name = str(ref.get("entityName") or "").strip()
+        tracker_name = str(entity.name or "").strip() if entity else ""
+        ref_card_id = str(ref.get("cardId") or "").strip()
+        card_id = ref_card_id or (str(entity.card_id or "").strip() if entity else "")
+
+        card = self.card_db.get_by_id(card_id) if card_id else None
+        name = str((card.name_ru or card.name_en) if card else "").strip()
+        if not name and ref_name and not ref_name.casefold().startswith("unknown entity"):
+            name = ref_name
+        if not name and tracker_name and not tracker_name.casefold().startswith("unknown entity"):
+            name = tracker_name
+        if not name:
+            name = ref_name or tracker_name
+        return entity_id, name, card_id, entity
+
+    def _option_action_type(
+        self,
+        option_type: str,
+        main_ref: Dict[str, Any],
+        entity: Optional[Entity],
+        card_type: int,
+        target_entity_id: Optional[int],
+        sub_option_id: int,
+    ) -> str:
+        if option_type == "END_TURN":
+            return "END_TURN"
+        zone = (entity.zone if entity else "") or main_ref.get("zone", "")
+        if zone == "HAND":
+            return "PLAY"
+        if card_type == int(CardType.HERO_POWER):
+            return "HERO_POWER"
+        if card_type == int(CardType.LOCATION):
+            return "LOCATION"
+        if card_type in (int(CardType.HERO), int(CardType.MINION)) and target_entity_id and sub_option_id < 0:
+            return "ATTACK"
+        return option_type
+
+    def _build_option_candidates(self) -> List[ReplayOptionCandidate]:
+        candidates: List[ReplayOptionCandidate] = []
+        board_slots = 0
+        for board_entity in self.entities.values():
+            board_card_type = board_entity.card_type
+            if not board_card_type and board_entity.card_id:
+                board_card = self.card_db.get_by_id(board_entity.card_id)
+                board_card_type = int(board_card.card_type) if board_card else 0
+            if (
+                board_entity.controller == self.active_player_id
+                and board_entity.zone == "PLAY"
+                and board_card_type in (int(CardType.MINION), int(CardType.LOCATION))
+            ):
+                board_slots += 1
+
+        for option in self._current_options.values():
+            option_type = option.get("option_type", "")
+            if option_type != "END_TURN" and option.get("error") != "NONE":
+                continue
+
+            main_ref = option.get("main_entity", {})
+            entity_id, entity_name, entity_card_id, entity = self._option_entity(main_ref)
+            entity_card_type = 0
+            card = None
+            if entity_card_id:
+                card = self.card_db.get_by_id(entity_card_id)
+                entity_card_type = int(card.card_type) if card else 0
+            if not entity_card_type and entity:
+                entity_card_type = entity.card_type
+            legal_targets = [target for target in option.get("targets", []) if target.get("error") == "NONE"]
+            if option.get("targets") and not legal_targets:
+                continue
+            target_variants = legal_targets or [None]
+
+            legal_sub_options = [sub for sub in option.get("sub_options", []) if sub.get("error") == "NONE"]
+            if option.get("sub_options") and not legal_sub_options:
+                continue
+            sub_variants = legal_sub_options or [None]
+
+            for sub_option in sub_variants:
+                sub_option_id = sub_option.get("sub_option_id", -1) if sub_option else -1
+                sub_entity_id: Optional[int] = None
+                sub_entity_name: Optional[str] = None
+                sub_entity_card_id: Optional[str] = None
+                if sub_option:
+                    sub_entity_id, sub_entity_name, sub_entity_card_id, _ = self._option_entity(
+                        sub_option.get("entity", {})
+                    )
+
+                for target in target_variants:
+                    target_entity_id: Optional[int] = None
+                    target_name: Optional[str] = None
+                    target_card_id: Optional[str] = None
+                    if target:
+                        target_entity_id, target_name, target_card_id, _ = self._option_entity(
+                            target.get("entity", {})
+                        )
+
+                    action_type = self._option_action_type(
+                        option_type,
+                        main_ref,
+                        entity,
+                        entity_card_type,
+                        target_entity_id,
+                        sub_option_id,
+                    )
+                    if action_type == "END_TURN":
+                        description = "Завершить ход"
+                    else:
+                        description = entity_name or option_type
+                        if sub_entity_name:
+                            description += f" [{sub_entity_name}]"
+                        if target_name:
+                            description += f" -> {target_name}"
+
+                    mana_cost = 0
+                    if entity and action_type in ("PLAY", "HERO_POWER"):
+                        if entity.card_id == entity_card_id and entity.cost >= 0:
+                            mana_cost = entity.cost
+                        elif entity_card_id:
+                            card = self.card_db.get_by_id(entity_card_id)
+                            mana_cost = card.cost if card else 0
+
+                    position_variants = [0]
+                    if action_type == "PLAY" and entity_card_type in (
+                        int(CardType.MINION),
+                        int(CardType.LOCATION),
+                    ):
+                        position_variants = list(range(1, min(7, board_slots + 1) + 1))
+
+                    for position in position_variants:
+                        candidates.append(
+                            ReplayOptionCandidate(
+                                candidate_id=len(candidates) + 1,
+                                option_id=option["option_id"],
+                                option_type=option_type,
+                                action_type=action_type,
+                                entity_id=entity_id,
+                                entity_name=entity_name,
+                                entity_card_id=entity_card_id,
+                                entity_card_type=entity_card_type,
+                                controller_id=(entity.controller if entity else main_ref.get("player", 0)),
+                                target_entity_id=target_entity_id,
+                                target_name=target_name,
+                                target_card_id=target_card_id,
+                                sub_option_id=sub_option_id,
+                                sub_entity_id=sub_entity_id,
+                                sub_entity_name=sub_entity_name,
+                                sub_entity_card_id=sub_entity_card_id,
+                                position=position,
+                                mana_cost=mana_cost,
+                                is_tradeable=bool(card and "Tradeable" in card.mechanics),
+                                description=description,
+                            )
+                        )
+        return candidates
+
+    def _record_option_decision(self, data: Dict[str, Any]) -> None:
+        if self.current_turn < 1 or not self._current_options:
+            return
+        # A few HDT exports contain a complete option oracle but omit the
+        # turn-transition marker that normally creates _current_snapshot.
+        # The option set itself is a pre-action boundary, so capture a lazy
+        # snapshot instead of dropping an otherwise recoverable decision.
+        if self._current_snapshot is None:
+            self._current_snapshot = self.take_turn_snapshot()
+        selected_target = data.get("selected_target", 0) or None
+        self.option_decisions.append(
+            OptionDecision(
+                sequence=len(self.option_decisions) + 1,
+                options_id=self._current_options_id,
+                snapshot=self.take_turn_snapshot(),
+                candidates=self._build_option_candidates(),
+                selected_option=data.get("selected_option", -1),
+                selected_sub_option=data.get("selected_sub_option", -1),
+                selected_target=selected_target,
+                selected_position=data.get("selected_position", 0),
+            )
+        )
+        self._current_options = {}
+        self._current_option_id = None
 
     def finalize(self) -> None:
         """Finalizes the last turn's actions."""
@@ -625,16 +953,26 @@ class GameStateTracker:
         o_hero_ent = self.entities.get(o_player.hero_entity_id or 0)
 
         f_hero_info = {
+            "entity_id": f_hero_ent.entity_id if f_hero_ent else 0,
             "name": f_hero_ent.name if f_hero_ent else "Friendly Hero",
             "card_id": f_hero_ent.card_id if f_hero_ent else "",
             "health": f_hero_ent.health if f_hero_ent else 30,
             "armor": f_hero_ent.armor if f_hero_ent else 0,
+            "attack": f_hero_ent.attack if f_hero_ent else 0,
+            "can_attack": f_hero_ent.can_attack if f_hero_ent else False,
+            "is_immune": bool(f_hero_ent.get_tag("IMMUNE", 0)) if f_hero_ent else False,
+            "cant_be_attacked": bool(f_hero_ent.get_tag("CANT_BE_ATTACKED", 0)) if f_hero_ent else False,
         }
         o_hero_info = {
+            "entity_id": o_hero_ent.entity_id if o_hero_ent else 0,
             "name": o_hero_ent.name if o_hero_ent else "Opponent Hero",
             "card_id": o_hero_ent.card_id if o_hero_ent else "",
             "health": o_hero_ent.health if o_hero_ent else 30,
             "armor": o_hero_ent.armor if o_hero_ent else 0,
+            "attack": o_hero_ent.attack if o_hero_ent else 0,
+            "can_attack": o_hero_ent.can_attack if o_hero_ent else False,
+            "is_immune": bool(o_hero_ent.get_tag("IMMUNE", 0)) if o_hero_ent else False,
+            "cant_be_attacked": bool(o_hero_ent.get_tag("CANT_BE_ATTACKED", 0)) if o_hero_ent else False,
         }
 
         # Friendly Hand
@@ -700,6 +1038,8 @@ class GameStateTracker:
                         "is_dormant": ent.is_dormant,
                         "is_titan": ent.is_titan,
                         "is_starship": ent.is_starship,
+                        "is_immune": bool(ent.get_tag("IMMUNE", 0)),
+                        "cant_be_attacked": bool(ent.get_tag("CANT_BE_ATTACKED", 0)),
                     }
                     if ent.controller == f_pid:
                         friendly_board.append(minion_data)
@@ -743,6 +1083,7 @@ class GameStateTracker:
             "entity_id": f_player.hero_power_entity_id or 0,
             "card_id": f_hp_ent.card_id if f_hp_ent else "",
             "name": f_hp_ent.name if f_hp_ent else "",
+            "cost": max(0, f_hp_ent.cost) if f_hp_ent and f_hp_ent.cost >= 0 else 2,
             "exhausted": bool(f_hp_ent.is_exhausted) if f_hp_ent else True,
         }
 

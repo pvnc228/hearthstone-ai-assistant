@@ -18,6 +18,7 @@ class ActionCandidate:
     entity_name: str
     entity_card_id: str
     mana_cost: int
+    entity_id: Optional[int] = None
     target_name: Optional[str] = None
     target_card_id: Optional[str] = None
     target_entity_id: Optional[int] = None
@@ -40,13 +41,16 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
     candidates: List[ActionCandidate] = []
     idx = 1
     mana = snapshot.friendly_mana
-    board_full = len(snapshot.friendly_board) >= 10
+    board_full = len(snapshot.friendly_board) + len(snapshot.friendly_locations) >= 7
 
     # 1. Physical Attacks from Board Minions
     # Only minions that can actually be attacked: no stealth, not dormant
     attackable_minions = [
         m for m in snapshot.opponent_board
-        if not m.get("is_stealthed") and not m.get("is_dormant")
+        if not m.get("is_stealthed")
+        and not m.get("is_dormant")
+        and not m.get("is_immune")
+        and not m.get("cant_be_attacked")
     ]
     # Taunts force targets among themselves
     enemy_taunts = [m for m in attackable_minions if m.get("is_taunt")]
@@ -78,6 +82,7 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                     entity_name=m_name,
                     entity_card_id=minion.get("card_id", ""),
                     mana_cost=0,
+                    entity_id=m_eid,
                     target_name=t_name,
                     target_card_id=target.get("card_id", ""),
                     target_entity_id=target.get("entity_id"),
@@ -88,7 +93,12 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
             idx += 1
 
         # Attack enemy hero if no Taunts blocking and minion isn't Rush-only
-        if can_hit_face and not enemy_taunts:
+        if (
+            can_hit_face
+            and not enemy_taunts
+            and not snapshot.opponent_hero.get("is_immune")
+            and not snapshot.opponent_hero.get("cant_be_attacked")
+        ):
             opp_hero = snapshot.opponent_hero
             opp_hp = opp_hero.get("health", 30)
             opp_armor = opp_hero.get("armor", 0)
@@ -102,10 +112,61 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                     entity_name=m_name,
                     entity_card_id=minion.get("card_id", ""),
                     mana_cost=0,
+                    entity_id=m_eid,
                     target_name=opp_hero.get("name", "Герой противника"),
                     target_card_id=opp_hero.get("card_id", ""),
-                    target_entity_id=0,  # 0 = enemy hero
+                    target_entity_id=opp_hero.get("entity_id", 0),
                     details={"attacker_entity_id": m_eid},
+                    description=desc,
+                )
+            )
+            idx += 1
+
+    # Hero attacks use the same Taunt and attackability rules as minions.
+    friendly_hero = snapshot.friendly_hero
+    if friendly_hero.get("can_attack") and friendly_hero.get("attack", 0) > 0:
+        hero_name = friendly_hero.get("name", "Ваш герой")
+        hero_attack = friendly_hero.get("attack", 0)
+        hero_eid = friendly_hero.get("entity_id")
+        for target in valid_attack_targets:
+            t_name = target.get("name", "Вражеское существо")
+            desc = f"Атака героем: {hero_name} ({hero_attack}) -> {t_name} ({target.get('attack', 0)}/{target.get('health', 0)})"
+            candidates.append(
+                ActionCandidate(
+                    index=idx,
+                    action_type="ATTACK",
+                    entity_name=hero_name,
+                    entity_card_id=friendly_hero.get("card_id", ""),
+                    mana_cost=0,
+                    entity_id=hero_eid,
+                    target_name=t_name,
+                    target_card_id=target.get("card_id", ""),
+                    target_entity_id=target.get("entity_id"),
+                    details={"attacker_entity_id": hero_eid},
+                    description=desc,
+                )
+            )
+            idx += 1
+
+        if (
+            not enemy_taunts
+            and not snapshot.opponent_hero.get("is_immune")
+            and not snapshot.opponent_hero.get("cant_be_attacked")
+        ):
+            opp_hero = snapshot.opponent_hero
+            desc = f"Атака героем: {hero_name} ({hero_attack}) -> Герой противника"
+            candidates.append(
+                ActionCandidate(
+                    index=idx,
+                    action_type="ATTACK",
+                    entity_name=hero_name,
+                    entity_card_id=friendly_hero.get("card_id", ""),
+                    mana_cost=0,
+                    entity_id=hero_eid,
+                    target_name=opp_hero.get("name", "Герой противника"),
+                    target_card_id=opp_hero.get("card_id", ""),
+                    target_entity_id=opp_hero.get("entity_id", 0),
+                    details={"attacker_entity_id": hero_eid},
                     description=desc,
                 )
             )
@@ -130,7 +191,7 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
         # Non-targeted minions / weapons / secrets
         if c_type in (CardType.MINION, CardType.WEAPON) or not c_type:
             if c_type == CardType.MINION and board_full:
-                continue  # board full (10 minions) — cannot play more minions
+                continue  # board full (7 minions/locations) — cannot play more minions
             atk = card_data.get("attack") or (c_info.attack if c_info else None)
             hp = card_data.get("health") or (c_info.health if c_info else None)
             stats = f" {atk}/{hp}" if atk is not None and hp is not None else ""
@@ -143,73 +204,22 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                     entity_name=card_name,
                     entity_card_id=cid,
                     mana_cost=cost,
+                    entity_id=card_data.get("entity_id"),
                     description=desc,
                 )
             )
             idx += 1
 
         elif c_type == CardType.SPELL:
-            # Untracked AoE / no-target spells: single untargeted candidate.
-            # Targeted spells: hero + enemy-minion variants.
-            # ponytail: real targeting data lives in CardDefs' RequiresTarget tag; add when the card DB indexes it.
-            card_text = (c_info.text_ru if c_info else "") or ""
-            aoe_keywords = ("всем", "все сущест", "всем вражеским")
-            is_aoe = any(k in card_text.lower() for k in aoe_keywords)
-            if is_aoe:
-                desc_aoe = f"Разыграть заклинание: {card_name} ({cost}м) [без цели]"
-                candidates.append(
-                    ActionCandidate(
-                        index=idx,
-                        action_type="PLAY",
-                        entity_name=card_name,
-                        entity_card_id=cid,
-                        mana_cost=cost,
-                        description=desc_aoe,
-                    )
-                )
-                idx += 1
-                continue
-
-            # Target enemy hero
-            desc_hero = f"Разыграть заклинание: {card_name} ({cost}м) -> Герой противника"
-            candidates.append(
-                ActionCandidate(
-                    index=idx,
-                    action_type="PLAY",
-                    entity_name=card_name,
-                    entity_card_id=cid,
-                    mana_cost=cost,
-                    target_name=snapshot.opponent_hero.get("name", "Герой противника"),
-                    target_card_id=snapshot.opponent_hero.get("card_id", ""),
-                    description=desc_hero,
-                )
-            )
-            idx += 1
-
-            # Target enemy minions
-            for target in snapshot.opponent_board:
-                t_name = target.get("name", "Вражеское существо")
-                desc_minion = f"Разыграть заклинание: {card_name} ({cost}м) -> {t_name}"
-                candidates.append(
-                    ActionCandidate(
-                        index=idx,
-                        action_type="PLAY",
-                        entity_name=card_name,
-                        entity_card_id=cid,
-                        mana_cost=cost,
-                        target_name=t_name,
-                        target_card_id=target.get("card_id", ""),
-                        target_entity_id=target.get("entity_id"),
-                        description=desc_minion,
-                    )
-                )
-                idx += 1
+            # CardDefs has no verified target contract; never guess spell legality from card text.
+            continue
 
     # 3. Hero Power — only if the power entity exists and is not exhausted this turn.
     # Missing hero_power info means unknown state: treat as used (conservative, no illegal suggestion).
     hp_info = snapshot.hero_power or {}
     hp_used = hp_info.get("exhausted", True)
-    if mana >= 2 and not hp_used and hp_info:
+    hp_cost = hp_info.get("cost", 2)
+    if mana >= hp_cost and not hp_used and hp_info:
         hero_power_name = hp_info.get("name") or "Сила героя"
         desc_hp = f"Сила героя: {hero_power_name} (2м)"
         candidates.append(
@@ -218,7 +228,8 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                 action_type="HERO_POWER",
                 entity_name=hero_power_name,
                 entity_card_id=hp_info.get("card_id", ""),
-                mana_cost=2,
+                mana_cost=hp_cost,
+                entity_id=hp_info.get("entity_id"),
                 target_entity_id=None,
                 description=desc_hp,
             )
@@ -238,9 +249,21 @@ def generate_legal_candidates(snapshot: TurnSnapshot, card_db: CardDatabase) -> 
                     entity_name=l_name,
                     entity_card_id=loc.get("card_id", ""),
                     mana_cost=0,
+                    entity_id=loc.get("entity_id"),
                     description=desc_loc,
                 )
             )
             idx += 1
+
+    candidates.append(
+        ActionCandidate(
+            index=idx,
+            action_type="END_TURN",
+            entity_name="END_TURN",
+            entity_card_id="",
+            mana_cost=0,
+            description="Завершить ход",
+        )
+    )
 
     return candidates

@@ -10,6 +10,12 @@ from typing import Any, Dict, List, Optional
 
 from src.card_db import CardDatabase
 from src.llm import ActionCandidate, OllamaClient, ParsedPlan, generate_legal_candidates, parse_model_response
+from src.llm.next_action_contract import (
+    NEXT_ACTION_SYSTEM_PROMPT,
+    build_next_action_prompt,
+    candidate_to_prompt_dict,
+    snapshot_to_prompt_state,
+)
 from src.parser import GameReplay, PlayerAction, TurnSnapshot
 
 logger = logging.getLogger(__name__)
@@ -135,26 +141,12 @@ class MatchCoach:
 
     def build_llm_prompt(self, snapshot: TurnSnapshot, candidates: List[ActionCandidate]) -> str:
         """
-        Builds a compact prompt for small LLMs with candidate numbers.
+        Builds the shared next-action prompt used by runtime and schema-v2 data.
         """
-        opp_hp = snapshot.opponent_hero.get("health", 30)
-        opp_armor = snapshot.opponent_hero.get("armor", 0)
-        armor_str = f"+{opp_armor}" if opp_armor else ""
-
-        lines = [
-            "Ты — тактический ассистент Hearthstone. Выбери лучшую комбинацию действий из списка.",
-            f"Ход {snapshot.turn_number}. Доступно маны: {snapshot.friendly_mana}/{snapshot.friendly_max_mana}.",
-            f"Враг: {opp_hp}{armor_str} HP.",
-            "\nДоступные действия:",
-        ]
-
-        for cand in candidates:
-            lines.append(f"[{cand.index}] {cand.description}")
-
-        lines.append(
-            "\nОтветь в формате:\nПЛАН: [номера выбранных действий через запятую, например: 1, 3, 5]\nОБОСНОВАНИЕ: [кратко 1 предложение]"
+        return build_next_action_prompt(
+            snapshot_to_prompt_state(snapshot),
+            [candidate_to_prompt_dict(candidate) for candidate in candidates],
         )
-        return "\n".join(lines)
 
     def analyze_turn(self, snapshot: TurnSnapshot, query_llm: bool = True) -> TurnAnalysis:
         """
@@ -194,7 +186,12 @@ class MatchCoach:
         if query_llm and candidates:
             prompt = self.build_llm_prompt(snapshot, candidates)
             try:
-                raw_resp = self._get_llm_client().generate(prompt=prompt, temperature=0.1, max_tokens=100)
+                raw_resp = self._get_llm_client().generate(
+                    prompt=prompt,
+                    system=NEXT_ACTION_SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=100,
+                )
                 parsed = parse_model_response(raw_resp, candidates, max_mana=snapshot.friendly_mana)
                 ai_actions = parsed.action_descriptions
                 ai_reasoning = parsed.reasoning

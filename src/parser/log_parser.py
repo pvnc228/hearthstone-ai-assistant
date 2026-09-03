@@ -28,6 +28,7 @@ RE_TAG_CHANGE = re.compile(r"^TAG_CHANGE Entity=(.+?) tag=(\w+) value=(.*)$")
 # FULL_ENTITY: 'Creating ID=4 CardID=' (numeric) or 'Updating [entityName=... id=9 ...] CardID=X' (bracketed reveal)
 RE_FULL_ENTITY = re.compile(r"^FULL_ENTITY - (?:Creating|Updating) (?:ID=(\d+)|(\[.+\])) CardID=(\w*)")
 RE_SHOW_ENTITY = re.compile(r"^SHOW_ENTITY - Updating Entity=(.+?) CardID=(\w*)")
+RE_CHANGE_ENTITY = re.compile(r"^CHANGE_ENTITY - Updating Entity=(.+?) CardID=(\w*)")
 RE_HIDE_ENTITY = re.compile(r"^HIDE_ENTITY - Entity=(.+?) tag=(\w+) value=(.*)")
 RE_BLOCK_START = re.compile(r"^BLOCK_START BlockType=(\w+) Entity=(.+?)(?= EffectCardId=|$)")
 # Target value: bracketed entity (may contain nested brackets) OR bare token,
@@ -35,6 +36,19 @@ RE_BLOCK_START = re.compile(r"^BLOCK_START BlockType=(\w+) Entity=(.+?)(?= Effec
 RE_KV_TARGET = re.compile(r"\sTarget=(\[.*?\]|\S+?)(?=\s+\w+=|$)")
 RE_KV_SUBOPTION = re.compile(r"\sSubOption=(-?\d+)")
 RE_BLOCK_END = re.compile(r"^BLOCK_END")
+RE_OPTIONS_START = re.compile(r"^id=(\d+)$")
+RE_OPTION = re.compile(
+    r"^option\s+(\d+)\s+type=(\w+)\s+mainEntity=(.*?)\s+error=(\w+)\s+errorParam=(.*)$"
+)
+RE_OPTION_TARGET = re.compile(
+    r"^target\s+(\d+)\s+entity=(.*?)\s+error=(\w+)\s+errorParam=(.*)$"
+)
+RE_OPTION_SUB = re.compile(
+    r"^subOption\s+(\d+)\s+entity=(.*?)\s+error=(\w+)\s+errorParam=(.*)$"
+)
+RE_SEND_OPTION = re.compile(
+    r"^selectedOption=(\d+)\s+selectedSubOption=(-?\d+)\s+selectedTarget=(\d+)\s+selectedPosition=(-?\d+)$"
+)
 
 
 def parse_entity_ref(raw: str) -> Dict[str, Any]:
@@ -96,9 +110,86 @@ def parse_power_log_lines(lines: Iterable[str]) -> Generator[PowerEvent, None, N
         if not stripped:
             continue
 
+        is_options_line = "GameState.DebugPrintOptions()" in stripped
+        is_send_option_line = "GameState.SendOption()" in stripped
+
         # Extract payload after prefix
         m_prefix = RE_LOG_PREFIX.match(stripped)
         payload = m_prefix.group(1).strip() if m_prefix else stripped
+
+        if is_options_line:
+            payload = stripped.split("GameState.DebugPrintOptions() -", 1)[-1].strip()
+            m_options_start = RE_OPTIONS_START.match(payload)
+            if m_options_start:
+                yield PowerEvent(
+                    event_type="OPTIONS_START",
+                    data={"options_id": int(m_options_start.group(1))},
+                    raw_line=stripped,
+                )
+                continue
+
+            m_option = RE_OPTION.match(payload)
+            if m_option:
+                option_id, option_type, main_entity, error, error_param = m_option.groups()
+                yield PowerEvent(
+                    event_type="OPTION",
+                    data={
+                        "option_id": int(option_id),
+                        "option_type": option_type,
+                        "main_entity": parse_entity_ref(main_entity),
+                        "error": error,
+                        "error_param": error_param,
+                    },
+                    raw_line=stripped,
+                )
+                continue
+
+            m_target = RE_OPTION_TARGET.match(payload)
+            if m_target:
+                target_id, entity, error, error_param = m_target.groups()
+                yield PowerEvent(
+                    event_type="OPTION_TARGET",
+                    data={
+                        "target_index": int(target_id),
+                        "entity": parse_entity_ref(entity),
+                        "error": error,
+                        "error_param": error_param,
+                    },
+                    raw_line=stripped,
+                )
+                continue
+
+            m_sub = RE_OPTION_SUB.match(payload)
+            if m_sub:
+                sub_option_id, entity, error, error_param = m_sub.groups()
+                yield PowerEvent(
+                    event_type="OPTION_SUB_OPTION",
+                    data={
+                        "sub_option_id": int(sub_option_id),
+                        "entity": parse_entity_ref(entity),
+                        "error": error,
+                        "error_param": error_param,
+                    },
+                    raw_line=stripped,
+                )
+                continue
+
+        if is_send_option_line:
+            payload = stripped.split("GameState.SendOption() -", 1)[-1].strip()
+            m_send = RE_SEND_OPTION.match(payload)
+            if m_send:
+                selected_option, selected_sub_option, selected_target, selected_position = m_send.groups()
+                yield PowerEvent(
+                    event_type="SEND_OPTION",
+                    data={
+                        "selected_option": int(selected_option),
+                        "selected_sub_option": int(selected_sub_option),
+                        "selected_target": int(selected_target),
+                        "selected_position": int(selected_position),
+                    },
+                    raw_line=stripped,
+                )
+                continue
 
         if not payload or payload.startswith("Count="):
             continue
@@ -167,6 +258,19 @@ def parse_power_log_lines(lines: Iterable[str]) -> Generator[PowerEvent, None, N
             current_entity_id = ent_ref.get("id")
             yield PowerEvent(
                 event_type="SHOW_ENTITY",
+                data={"entity": ent_ref, "card_id": cid or ""},
+                raw_line=stripped,
+            )
+            continue
+
+        # CHANGE_ENTITY reuses an entity id for a transformed/copied card.
+        m_ce = RE_CHANGE_ENTITY.match(payload)
+        if m_ce:
+            ent_str, cid = m_ce.groups()
+            ent_ref = parse_entity_ref(ent_str)
+            current_entity_id = ent_ref.get("id")
+            yield PowerEvent(
+                event_type="CHANGE_ENTITY",
                 data={"entity": ent_ref, "card_id": cid or ""},
                 raw_line=stripped,
             )

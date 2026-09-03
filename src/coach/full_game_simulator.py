@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 from src.card_db import CardDatabase
-from src.llm import OllamaClient, generate_legal_candidates, parse_model_response
+from src.llm import NEXT_ACTION_SYSTEM_PROMPT, OllamaClient, generate_legal_candidates, parse_model_response
 from src.parser import DEFAULT_REPLAY_DIR, load_deck_stats_index, parse_replay_file
 from src.coach.analyzer import MatchCoach
 
@@ -57,7 +57,12 @@ def run_full_game_simulation():
             prompt = coach.build_llm_prompt(snap, candidates)
 
             t0 = time.time()
-            raw_resp = client.generate(prompt=prompt, temperature=0.1, max_tokens=250)
+            raw_resp = client.generate(
+                prompt=prompt,
+                system=NEXT_ACTION_SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=250,
+            )
             latency = time.time() - t0
 
             parsed = parse_model_response(raw_resp, candidates, max_mana=snap.friendly_mana)

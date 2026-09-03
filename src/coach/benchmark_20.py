@@ -7,7 +7,8 @@ import json
 import time
 from pathlib import Path
 from src.card_db import CardDatabase
-from src.llm import OllamaClient, ActionCandidate, generate_legal_candidates, parse_model_response
+from src.llm import NEXT_ACTION_SYSTEM_PROMPT, OllamaClient, generate_legal_candidates, parse_model_response
+from src.coach.analyzer import MatchCoach
 from src.parser import TurnSnapshot
 
 OUTPUT_FILE = Path("data/benchmark_20_situations.md")
@@ -428,6 +429,7 @@ SCENARIOS = [
 def run_benchmark():
     card_db = CardDatabase(auto_load=True)
     client = OllamaClient(model="qwen2.5:1.5b-instruct-q8_0")
+    coach = MatchCoach(card_db=card_db, ollama_client=client)
     
     print(f"Running benchmark on 20 situations with {client.model}...")
     
@@ -445,21 +447,15 @@ def run_benchmark():
         
         candidates = generate_legal_candidates(snap, card_db)
         
-        # Build prompt
-        opp_hp = snap.opponent_hero.get("health", 30) + snap.opponent_hero.get("armor", 0)
-        p_lines = [
-            "Ты — тактический ассистент Hearthstone. Выбери лучшую комбинацию действий из предложенного списка.",
-            f"Ход {snap.turn_number}. Доступно маны: {snap.friendly_mana}/{snap.friendly_max_mana}.",
-            f"Враг: {opp_hp} HP.",
-            "\nДоступные действия:"
-        ]
-        for c in candidates:
-            p_lines.append(f"[{c.index}] {c.description}")
-        p_lines.append("\nОтветь строго в формате:\nПЛАН: [номера выбранных действий через запятую, например: 1, 3]\nОБОСНОВАНИЕ: [кратко 1 предложение]")
-        prompt_str = "\n".join(p_lines)
+        prompt_str = coach.build_llm_prompt(snap, candidates)
         
         t0 = time.time()
-        raw_resp = client.generate(prompt=prompt_str, temperature=0.1, max_tokens=200)
+        raw_resp = client.generate(
+            prompt=prompt_str,
+            system=NEXT_ACTION_SYSTEM_PROMPT,
+            temperature=0.1,
+            max_tokens=200,
+        )
         latency = time.time() - t0
         
         parsed = parse_model_response(raw_resp, candidates, max_mana=snap.friendly_mana)

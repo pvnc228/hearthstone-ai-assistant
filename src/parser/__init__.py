@@ -15,10 +15,13 @@ from .replay_reader import (
     parse_replay_file,
 )
 from .state_tracker import (
+    DecisionPoint,
     Entity,
     GameStateTracker,
+    OptionDecision,
     PlayerAction,
     PlayerState,
+    ReplayOptionCandidate,
     TurnSnapshot,
 )
 
@@ -27,6 +30,9 @@ __all__ = [
     "parse_entity_ref",
     "parse_power_log_lines",
     "Entity",
+    "DecisionPoint",
+    "OptionDecision",
+    "ReplayOptionCandidate",
     "PlayerState",
     "PlayerAction",
     "TurnSnapshot",

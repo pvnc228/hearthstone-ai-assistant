@@ -1,7 +1,11 @@
 {
   "model_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
-  "train_file": "data/processed/sft_train_chatml.jsonl",
-  "eval_file": "data/processed/sft_eval_chatml.jsonl",
+  "dataset_contract": "next_action_v2",
+  "split_manifest": "data/processed/next_action_split_manifest_v1.json",
+  "train_file": "data/processed/next_action_train_chatml.jsonl",
+  "eval_file": "data/processed/next_action_validation_chatml.jsonl",
+  "test_file": "data/processed/next_action_test_chatml.jsonl",
+  "temporal_holdout_file": "data/processed/next_action_temporal_holdout_chatml.jsonl",
   "output_dir": "models/qlora-hearthstone-qwen2.5-7b",
   "max_seq_length": 1024,
   "lora_r": 16,
