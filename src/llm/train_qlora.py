@@ -244,8 +244,8 @@ def train_qlora(cfg: dict, smoke_test: bool = False):
         data_files["eval"] = eval_file
 
     raw_datasets = load_dataset("json", data_files=data_files)
-    train_dataset = raw_datasets["train"]
-    eval_dataset = raw_datasets.get("eval")
+    train_dataset = raw_datasets["train"].select_columns(["messages"])
+    eval_dataset = raw_datasets["eval"].select_columns(["messages"]) if "eval" in raw_datasets else None
 
     if smoke_test:
         train_dataset = train_dataset.select(range(min(4, len(train_dataset))))

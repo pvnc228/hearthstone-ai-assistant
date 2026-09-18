@@ -195,6 +195,221 @@ Production `data/processed/train_actions.jsonl` был перезаписан с
 - `py -m src.llm.train_qlora --validate-only`: train `9320/390 games`, eval `1198/48 games`, test `1117/48 games`, temporal `1205/54 games`.
 - `py -m src.llm.train_qlora --check-environment`: `datasets`, `trl`, `bitsandbytes` отсутствуют; `torch 2.9.0+cpu`, CUDA unavailable; `qlora_ready=false`.
 - Base-model smoke против `qwen2.5:1.5b`: Ollama `127.0.0.1:11434` timeout; report status `blocked`, exit code non-zero.
-- QLoRA smoke: корректно остановлен с exit code 1 до загрузки модели из-за отсутствующих ML-зависимостей.
-
 Обучение, установка зависимостей, commit и push не выполнялись.
+
+---
+
+## 2026-09-12 — Архитектурная заметка: Post-Training через NSD / DPO (Negative Feedback Loop)
+
+### 1. Суть концепции (исследование arXiv:2609.11699, Negative Self-Distillation)
+В стандартном имитационном обучении (Behavioral Cloning / SFT) модель обучается исключительно на положительных примерах — действиях легендарного игрока из `train_master_actions.jsonl` / `schema-v2`. При этом модель не понимает *почему* альтернативные ходы плохи или нелегальны.
+Метод Negative Self-Distillation (NSD) предлагает целенаправленно штрафовать модель за самосгенерированные ошибки через динамический вентильный механизм (dynamic gating), предотвращающий языковой коллапс.
+
+### 2. Применение к Hearthstone AI Assistant
+Hearthstone обладает идеальной детерминированной средой для генерации пар предпочтений (Preference Pairs):
+1. **Нелегальные ходы**: попытка разыграть карту без маны, атаковать существо сквозь провокацию (`Taunt`) или скрытность (`Stealth`), применить заклинание по невалидной цели (`Elusive`).
+2. **Тактические зевки**: размен существ не в том порядке (потеря урона), пропуск очевидного летального урона (`Lethal Detector`), разыгрывание карт с `Battlecry` без учёта переполнения стола.
+
+### 3. Регламент и последовательность (YAGNI & Staging)
+- **Блокер текущего этапа**: Внедрять NSD/DPO прямо сейчас **категорически запрещено**. Модель ещё не прошла базовую SFT/QLoRA калибровку. Обучение на ошибках до освоения синтаксиса контракта `PLAN: [candidate_id]` разрушит базовые веса.
+- **Фаза 1 (Текущая)**: Закрыть блокеры данных (quarantine-классы, CUDA-рантайм) и обучить чистый базовый SFT QLoRA на `schema-v2` (модель `Qwen3-4B-Instruct` / `Qwen2.5-Coder-7B`).
+- **Фаза 2 (Post-Training / DPO через `ml-intern`)**:
+  - Прогнать базовую модель через `evaluate_next_action.py` и симулятор стола.
+  - Собрать датасет пар предпочтений: `(Prompt: State + Legal Candidates, Chosen: Реплейное действие, Rejected: Самосгенерированная ошибка модели)`.
+  - Запустить DPO (Direct Preference Optimization) в `ml-intern` (`TRL / DPOTrainer`) с сохранением формата контракта.
+
+---
+
+## 2026-09-17 — Архитектурная ревизия: NLI Cross-Encoder / Jev-архитектура (openjev) как кандидат на селектор действий
+
+### 1. Контекст и предпосылки исследования
+- 16 сентября 2026 года TypeSafe AI представили парадигму System One Models (Jev) — one-pass scoring дискретных опций без авторегрессионной генерации токенов. В тот же день AlexWortega опубликовал `AlexWortega/openjev` — открытое воспроизведение этой концепции на базе декодера `Qwen3.5-4B`, дообученного как 3-классовый NLI Cross-Encoder (`contradiction`, `entailment`, `neutral`) по методологии Lee Miller (`dleemiller`).
+- Аудит текущего контракта проекта `schema-v2` (`state + replay-reported legal candidates -> chosen candidate ID`) показал 100% соответствие задаче Jev:
+  - Выбор ровно одного действия из дискретного набора легальных кандидатов (среднее 9.9 кандидатов на шаг, min 1, max 84).
+  - Текущая авторегрессионная схема с генерацией строки `PLAN: [id]` через Ollama создает оверхед по задержке (0.8–1.2 с на шаг) и подвержена ошибкам парсинга (`format_valid` / `candidate_exists`).
+
+### 2. Сравнительный анализ архитектур: Авторегрессионный SFT vs. Jev / openjev
+| Критерий | Текущий контур (Ollama `qwen2.5:1.5b-instruct` / SFT QLoRA) | Альтернативный контур (Jev / openjev NLI Cross-Encoder) |
+| :--- | :--- | :--- |
+| **Парадигма инференса** | Генеративная авторегрессия токенов строки `PLAN: [id]`. | One-pass прямой проход, ранжирование опций по $P(\text{entailment})$. |
+| **Задержка (Latency)** | 800–1 200 мс на действие (5–6 с на ход). | **40–70 мс** на весь батч кандидатов на GPU. |
+| **Надежность схемы** | Риск `format_valid=False` (лишние токены) и `candidate_exists=False` (галлюцинация несуществующего ID). | **100% валидность формата**, 0% галлюцинаций ID (выбор строго по списку легальных кандидатов). |
+| **Сложность обучения** | Блокирован: требует `bitsandbytes`, `trl`, CUDA SFT пайплайна под генерацию токенов. | Минимальная: обучение лёгкого зонда `LatentMLPHead` на латентах за 2–3 минуты без тяжелых зависимостей. |
+| **VRAM и совместимость** | 1.6 ГБ (`qwen2.5:1.5b-instruct-q8_0`) до 8 ГБ (7B). | 1.6 ГБ (`ModernCE-large-nli`), ~4.5 ГБ (`openjev-2B`), ~9 ГБ (`openjev-4B`). |
+
+### 3. План валидации и интеграции
+1. **Сбор весовых артефактов**:
+   - Скачивание `AlexWortega/openjev` (4B NLI, 9.07 GB) и `dleemiller/ModernCE-large-nli` (ModernBERT-large 395M, 1.58 GB) в `D:\models\`.
+2. **Offline Zero-shot Benchmark**:
+   - Создать экспериментальный селектор `src/llm/openjev_client.py`, совместимый с интерфейсом `evaluate_next_action.py`.
+   - Запустить оценку zero-shot ранжирования на `next_action_test_chatml.jsonl` (1 117 записей) по метрике `top1_accuracy`.
+   - Проверить влияние формулировки гипотезы (прямое действие vs тактическое утверждение State-Statement).
+3. **Обучение LatentMLPHead на реплеях Легенды**:
+   - Прогнать 9 320 обучающих примеров через замороженный backbone, извлечь скрытые векторы последнего токена (`last-token pooling`).
+   - Обучить `LatentMLPHead` (архитектура `Linear(d, 512) -> GELU -> Dropout -> Linear(512, 1)`) с функцией потерь `soft_bce` на `chosen_candidate_id`.
+   - Замерить `top1_accuracy` на валидационном (1 198) и тестовом (1 117) срезах.
+4. **Решение о целевой архитектуре**:
+   - Сопоставить latency, точность попадания в ход игрока и стабильность работы.
+   - При подтверждении задержки (<100 мс) и сопоставимой точности — утвердить NLI Cross-Encoder / Jev как основной рантайм вместо медленного авторегрессионного контура.
+
+### 4. Руководство по запуску и инференсу моделей (Runbook)
+
+#### Почему НЕ `llama-server.exe`:
+- Сервер `llama-server.exe` спроектирован для авторегрессионных генеративных моделей в формате GGUF с протоколом генерации текста `/v1/chat/completions`.
+- `openjev` и `ModernCE` — это **NLI Cross-Encoders** (архитектура `ForSequenceClassification`), сохраненные в формате PyTorch Safetensors.
+- Они не генерируют токены, а вычисляют логиты классификации над парой текстов (`Premise` + `Hypothesis`). Напрямую через `llama-server` без специального GGUF-преобразования головы классификации они не запускаются.
+
+#### Вариант A: In-Process в Python (Рекомендуемый для минимальной задержки)
+Прямой вызов внутри проекта исключает оверхед HTTP-сокетов и обеспечивает чистый latency в ~40–60 мс на GPU.
+
+1. **Запуск `openjev-4b` (`D:\models\openjev-4b`)**:
+```python
+import sys
+import torch
+sys.path.append(r"D:\models\openjev-4b")
+from modeling_openjev import OpenJevCrossEncoder
+
+# Загрузка локальных весов (рекомендуется bfloat16 на GPU)
+jev = OpenJevCrossEncoder(
+    path=r"D:\models\openjev-4b",
+    subfolder="qwen3.5-4b-nli",
+    device="cuda",
+    dtype=torch.bfloat16
+)
+
+# Ранжирование кандидатов за один прямой проход:
+best_opt_idx = jev.rerank(
+    question=state_prompt,
+    options=[c["description"] for c in candidates],
+    hyp_fmt="Следующее действие: {}"
+)
+chosen_candidate_id = candidates[best_opt_idx]["id"]
+```
+
+2. **Запуск `ModernCE-large-nli` (`D:\models\ModernCE-large-nli`)**:
+Легковесный бейзлайн (395M параметров, ~1.5 ГБ VRAM, инференс ~15 мс):
+```python
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+path = r"D:\models\ModernCE-large-nli"
+tok = AutoTokenizer.from_pretrained(path)
+model = AutoModelForSequenceClassification.from_pretrained(
+    path, dtype=torch.float16
+).cuda().eval()
+
+# Пакетное кодирование пар (State, Candidate)
+pairs = [(state_prompt, f"Следующее действие: {c['description']}") for c in candidates]
+enc = tok(
+    [f"Premise: {p}\nHypothesis: {h}" for p, h in pairs],
+    padding=True, truncation=True, return_tensors="pt"
+).to("cuda")
+
+with torch.no_grad():
+    logits = model(**enc).logits
+    # Метки dleemiller: 0 = contradiction, 1 = entailment, 2 = neutral
+    entailment_scores = logits[:, 1]
+    best_opt_idx = int(entailment_scores.argmax().cpu())
+chosen_candidate_id = candidates[best_opt_idx]["id"]
+```
+
+#### Вариант B: Автономный локальный микросервис (FastAPI)
+Если необходимо сохранить изоляцию процессов между трекером Hearthstone и ML-рантаймом (по аналогии с Ollama):
+- Создается легковесный сервис `scripts/serve_openjev.py` с эндпоинтом `POST /rerank`.
+- Запуск: `uvicorn scripts.serve_openjev:app --host 127.0.0.1 --port 8000`.
+- Ассистент отправляет `{"state": state_prompt, "candidates": candidate_list}` и за 50–60 мс получает `{"chosen_id": 7}`.
+
+#### Аппаратный профиль и VRAM на RTX 4060 (8 GB):
+- `ModernCE-large-nli` (395M): занимает всего ~1.5 ГБ VRAM, оставляя 6.5 ГБ под игру Hearthstone и фоновые процессы.
+- `openjev-4b` (4B): в `bfloat16` занимает ~8.6 ГБ VRAM. При параллельно запущенной игре может вызывать частичный spillover в Shared RAM. При необходимости экономии памяти доступна загрузка в 4-битном режиме через `bitsandbytes` (`load_in_4bit=True`), снижающая потребление до ~3.5 ГБ VRAM.
+
+
+
+
+## 2026-09-17 — Проверка кандидата NLI: уточнение статуса и runbook
+
+Подробный разбор и TODO: [plans/2026-09-17-nli-selector-assessment.md](plans/2026-09-17-nli-selector-assessment.md).
+
+- openjev/ModernCE остаются экспериментальными кандидатами на селектор. Цифры 40–70 мс и 2–3 минуты из предыдущей записи не подтверждены локальным Hearthstone benchmark.
+- ModernCE требует pair-tokenization; config и model card расходятся по порядку меток. Нужен sanity-check, а для P(entailment) — softmax вместо сравнения сырых logits.
+- openjev BF16 не укладывается в RTX 4060 8 GB с резервом. Wrapper не поддерживает прямой флаг 4-bit; режим квантизации отдельно не проверен.
+- CUDA Torch уже есть в D:/AI: voodoo-dyn-quant, exllamav3, ComfyUI embedded и kohya_ss. В voodoo подтверждены CUDA-операция, transformers 5.17.0 и импорты обоих классификаторов (exit 0). CPU-only 2.9.0 относится только к системному py.
+- На текущем test expected random top1 = 29.22%, first-candidate = 21.49%. Train содержит 91 831 пары state/candidate. Заявления о качестве и скорости требуют отдельного model forward и frozen benchmark.
+- Исходный код и model config в этой сессии не менялись; обучение и инференс весов не запускались.
+
+## 2026-09-17 — ModernCE frozen validation: zero-shot кандидат отклонен как base runtime
+
+- Добавлен `src/llm/evaluate_modernce.py`; полный отчет: `data/processed/next_action_baseline_modernce_validation.json`.
+- Среда: `D:\AI\voodoo-dyn-quant\.venv`, torch `2.14.0+cu132`, transformers `5.17.0`, RTX 4060, FP16.
+- Sanity-check подтвердил реальный порядок logits `[contradiction, entailment, neutral]`; локальный `config.json` подписывает их неверно. Использован entailment index 1 и pair-tokenization.
+- Frozen validation: 1198 решений, 10 638 пар, errors/truncations 0, peak allocated 1197.875 MiB.
+- Top-1 all 31.55%; при N>1 — 23.08% против expected random 18.98% и first-candidate 11.91%. Delta к random +4.10 п.п.; game-cluster bootstrap 95% CI +1.00...+7.75 п.п.
+- Top-3 all 60.10%; при N>1 — 55.16%.
+- Latency: p50 74.213 ms, p95 398.193 ms, max 1746.969 ms. Заявление 40–70 ms на любой набор кандидатов опровергнуто.
+- Критический class breakdown при N>1: `END_TURN=0/127`, `HERO_POWER=0/64`. Из 1066 предсказаний модель выбрала `PLAY=792`, `ATTACK=258`, `LOCATION=12`, `END_TURN=3`, `POWER=1`, `HERO_POWER=0`; все три END_TURN были ошибочны.
+- Английский hypothesis template на первых 100 validation решений не изменил top-1: 22%.
+- Решение: zero-shot ModernCE не продвигать как базовую модель/greedy selector. Test и temporal не запускались. Допустимое продолжение ветки — supervised listwise head на frozen embeddings с game-level validation и обязательным контролем END_TURN/HERO_POWER.
+- Верификация: benchmark exit code 0; `py_compile` и `git diff --check` для runner exit code 0. Commit/push не выполнялись.
+
+## 2026-09-17 — NVIDIA driver fault и обязательный resource guard
+
+- Во время пилотного извлечения 2056 ModernCE embeddings пользователь наблюдал около 11 GB общей GPU memory, 100% CPU и OOM/сбой. Полный train extraction не запускался.
+- Windows System log подтвердил `nvlddmkm`, Event ID 153 в 19:51:37: `Error occurred on GPUID: 100`. Централизованного Resource-Exhaustion Event 2004 не найдено.
+- Ранее опубликованный `torch.cuda.max_memory_allocated=1221.41 MiB` отражал только allocator PyTorch и не описывал WDDM, driver workspace и shared GPU memory. Использовать его как доказательство безопасности было ошибкой.
+- Добавлен `src/llm/resource_guard.py`; `evaluate_modernce.py` переведен на безопасный профиль: batch max 2, CPU threads 2, inter-op 1, tokenizer parallelism off, process priority Below Normal, PyTorch allocator cap 40% VRAM, SDPA, `reference_compile=false`, cooldown и telemetry watchdog.
+- Run блокируется по живой телеметрии при GPU used >4096 MiB, GPU free <4096 MiB, available RAM <8192 MiB или GPU temperature >75 C. После 60 секунд небезопасного состояния процесс завершается вместо продолжения к OOM. Временные окна и отложенные запуски не используются: момент запуска определяет пользователь.
+- Любой будущий extractor обязан писать FP16 features небольшими атомарными чанками/memmap с flush/checkpoint, не держать полный корпус в RAM и не запускаться параллельно с игрой или другими GPU workloads.
+- Выполнен ручной безопасный pilot на 200 validation решений / 1683 парах: batch 1, errors 0, truncations 0. По 212 watchdog-замерам max total GPU used 2303 MiB, min GPU free 5654 MiB, min RAM available 14484 MiB, max GPU temperature 43 C. PyTorch peak allocated 775.678 MiB.
+- Pilot quality: top-1 all 28.0%, top-1 при N>1 24.61%, top-3 all 64.0%; latency p50 502.231 ms, p95 2145.554 ms. Это проверка безопасного режима, не основание менять прежнее решение по zero-shot модели.
+- Проверки: `7 passed in 0.24s`; `py_compile`, `git diff --check` и pilot exit code 0. Автоматизация отложенного запуска удалена; новых расписаний не создано.
+
+## 2026-09-18 — Автономный full supervised ModernCE run
+
+- Добавлен `src/llm/train_modernce_ranker.py`: frozen ModernCE mean-pooled features, локальный FP16 memmap, атомарный checkpoint каждые 25 решений, batch 2, существующий GPU/RAM/temperature watchdog и простая linear listwise head на CPU.
+- Full scope: frozen train 9320 решений / 91831 пар и validation 1198 / 10638. Test и temporal не используются.
+- Минимальный CUDA smoke 4+4 решения завершён полностью с exit code 0; CPU checks: 10 passed, `py_compile` и `git diff --check` exit code 0.
+- По прямой команде пользователя full run запущен вручную без расписания как скрытый автономный процесс PID 35760. Логи: `data/processed/modernce_ranker/full_run.stdout.log` и `full_run.stderr.log`; прогресс сохраняется в `data/processed/modernce_ranker/cache/` и может быть продолжен после остановки.
+- Codex не опрашивает процесс в фоне. Фактический результат будет считаться подтверждённым только после завершения процесса и чтения `data/processed/modernce_ranker/report.json` по следующему прямому запросу пользователя.
+
+## 2026-09-18 — Full supervised ModernCE run завершён
+
+- Извлечены все frozen features: train 9320 решений / 91831 пар и validation 1198 / 10638 пар. Обрезанных входов 0. GPU OOM и ошибок процесса не было; PID 35760 завершился штатно.
+- ResourceGuard: 6759 samples, max total GPU used 3659 MiB, min GPU free 4298 MiB, min RAM available 11219 MiB, max GPU temperature 65 C.
+- Linear head: best epoch 7/10. Validation top-1 all 35.893%; top-1 при N>1 27.955% против корректного expected random N>1 18.978% (+8.977 п.п.); top-3 all 64.692%.
+- В сравнении с прежним zero-shot ModernCE (31.55% all; 23.08% N>1) голова дала +4.34 п.п. all и +4.87 п.п. N>1 на validation. Это ещё не test/temporal evidence.
+- Breakdown best epoch: ATTACK 52.76%, END_TURN 50.97%, PLAY 26.06%, LOCATION 31.25%, HERO_POWER 0/64, POWER 50% на 2 случаях. Нулевая HERO_POWER остаётся блокером для базового runtime.
+- Артефакты: `data/processed/modernce_ranker/head.pt`, `report.json`, FP16 memmap cache и stdout/stderr logs. JSON baseline для N>1 исправлен и повторно проверен; tests 10 passed, `py_compile`, `git diff --check` exit code 0.
+
+## 2026-09-18 — CPU-only tuning редких action types запущен
+
+- Добавлен `src/llm/tune_modernce_ranker.py`, который использует готовые frozen features без повторного ModernCE/GPU forward.
+- Внутри train создан deterministic game-level split: 332 fit games / 58 dev games. Validation не участвует в выборе конфигурации и оценивается один раз после refit на полном train.
+- Абляции: unweighted linear, sqrt-inverse weighted linear, weighted linear + candidate-type one-hot, weighted 128-hidden MLP + type one-hot. Веса считаются только на fit и clipped около 5x; `POWER` не получает экстремальный вес.
+- Primary selector: mean NDCG@5 на internal dev. Небазовый вариант принимается только при положительной нижней границе paired game-bootstrap 95% CI против unweighted linear. HERO_POWER остаётся diagnostic, а не единственным selector. Для выбранного варианта проверяются seeds 41/42/43, затем выполняется refit на полном train.
+- ML Intern подтвердил необходимость game-level isolation, fold-local weighting, type one-hot ablation и rare-class diagnostic. Его оценка random как reciprocal mean list length отвергнута: корректный baseline усредняет `1/N` на том же decision set.
+- Focused verification: 14 passed; `py_compile`, `git diff --check` exit code 0. CPU-only job запущен автономно PID 20848, BelowNormal, 2 threads; логи `data/processed/modernce_ranker/tuning/tuning.stdout.log` и `tuning.stderr.log`. Codex не опрашивает процесс без нового запроса пользователя.
+
+## 2026-09-18 — Tempered class-weight experiment завершён
+
+- `tune_modernce_ranker.py` расширен CPU-only сеткой `w^alpha`, где `alpha=0.25/0.5/0.75`, с/без candidate action-type one-hot. Добавлен `--cpu-threads`; по прямой команде пользователя эксперимент выполнен на 8 потоках по существующему frozen feature cache без GPU forward и без чтения test/temporal.
+- Защитный selector допускает небазовый вариант только при `PLAY >= 80%` от unweighted baseline, `END_TURN >= 10%`, `HERO_POWER >= 10%` и paired game-bootstrap NDCG@5 lower CI `>= -0.01`. Среди прошедших вариантов primary metric — multi-candidate top-1.
+- Ни один tempered-вариант не прошёл все гейты. Лучший по общей точности `linear_tempered_type_025` дал dev N>1 top-1 28.40% против 25.08%, NDCG@5 0.5869 против 0.5642 и CI дельты `[+0.0029, +0.0330]`, но `PLAY` упал до 15.70% и `END_TURN` остался 0%; вариант отклонён.
+- Лучший компромисс без type-feature, `linear_tempered_025`, сохранил `PLAY=19.19%`, поднял `HERO_POWER=22.54%` и N>1 top-1 до 26.05%, но `END_TURN=0.77%`; вариант отклонён.
+- Варианты `alpha=0.75` подняли `END_TURN` до 11.54–16.92% и `HERO_POWER` до 63.38–67.61%, но обрушили `PLAY` до 8.14–11.05% и не прошли NDCG non-inferiority. Корень проблемы не сводится к силе class weights.
+- Selector оставил `linear_unweighted`; его повторная validation совпала с прошлым результатом: top-1 all 34.14%, N>1 25.98%, top-3 63.02%, NDCG@5 0.5642. Test и temporal по-прежнему не использованы.
+- Артефакты эксперимента: `data/processed/modernce_ranker/tuning_tempered/head.pt`, `report.json`, `run.log`. Время 101.768 s, CPU threads 8, OOM/ошибок процесса не было. Проверки: 16 passed; `py_compile` и `git diff --check` exit code 0.
+- Обязательный ML Intern review был запрошен дважды: первая попытка искала проект из неверного cwd, вторая зависла без содержательного ответа и была остановлена; результаты эксперимента от него не заявляются.
+
+## 2026-09-18 — Закреплённый план следующего этапа: factorized action-type ranker
+
+Статус: **planned, не запущен**. Продолжать сетку class weights запрещено: validation показала устойчивый конфликт между редкими типами и `PLAY`.
+
+1. На существующем train feature cache реализовать двухчастное распределение без нового GPU extraction:
+   - `P(type | state, candidate set)` — state-conditioned type gate по агрегату candidate embeddings с маской только реально доступных типов;
+   - `P(candidate | type, state)` — listwise ranking только среди кандидатов одного типа;
+   - итоговый score: `log P(type) + log P(candidate | type)`, без глобального one-hot bias, который вызвал текущий коллапс.
+2. Все архитектурные решения и коэффициенты выбирать только на прежнем game-level internal dev. Validation использовать как вторичный regression check; она уже наблюдалась в текущих экспериментах и больше не считается полностью нетронутой финальной оценкой.
+3. Обязательные internal-dev гейты перед refit: `PLAY >= 80%` unweighted baseline; `END_TURN >= 10%`; `HERO_POWER >= 10%`; multi-candidate top-1 выше baseline; paired game-bootstrap NDCG@5 lower CI `>= -0.01`; стабильность на seeds 41/42/43.
+4. Только после прохождения гейтов выполнить refit на полном train и один validation regression check. При провале любого гейта ветка ModernCE не продвигается в runtime.
+5. При успешной фиксации архитектуры безопасно извлечь test/temporal embeddings через существующий ResourceGuard и один раз оценить замороженную модель. До этой точки test и temporal не открывать.
+6. Runtime-интеграция разрешена только при сохранении выигрыша над decision-level random baseline на test и temporal, отсутствии class collapse и соблюдении локального latency/resource бюджета RTX 4060. Иначе ModernCE-ветка документируется как исследовательская и закрывается.

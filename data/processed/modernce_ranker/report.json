@@ -1,0 +1,497 @@
+{
+  "model": {
+    "model_dir": "D:\\models\\ModernCE-large-nli",
+    "weights_size": 1583355740,
+    "weights_mtime_ns": 1789659022177589200
+  },
+  "train": {
+    "dataset": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\next_action_train_chatml.jsonl",
+    "dataset_sha256": "87f8da3e550d920a99ded80bcae741c414dd1daa6be35893473831113c6c029c",
+    "limit": null,
+    "records": 9320,
+    "pairs": 91831
+  },
+  "validation": {
+    "dataset": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\next_action_validation_chatml.jsonl",
+    "dataset_sha256": "20b2a17ba7f8cbe2ba0d74d69e374a778bf6841b2c6439557c76dba98502f9cd",
+    "limit": null,
+    "records": 1198,
+    "pairs": 10638
+  },
+  "extraction": {
+    "train": {
+      "records_done": 9320,
+      "pairs_done": 91831,
+      "truncated_pairs": 0,
+      "max_untruncated_tokens": 506,
+      "complete": true,
+      "elapsed_seconds_this_run": 5150.28,
+      "resource_telemetry": {
+        "samples": 6053,
+        "max_gpu_used_mib": 3659,
+        "min_gpu_free_mib": 4298,
+        "min_ram_available_mib": 11219,
+        "max_gpu_temperature_c": 65
+      }
+    },
+    "validation": {
+      "records_done": 1198,
+      "pairs_done": 10638,
+      "truncated_pairs": 0,
+      "max_untruncated_tokens": 461,
+      "complete": true,
+      "elapsed_seconds_this_run": 532.296,
+      "resource_telemetry": {
+        "samples": 6758,
+        "max_gpu_used_mib": 3659,
+        "min_gpu_free_mib": 4298,
+        "min_ram_available_mib": 11219,
+        "max_gpu_temperature_c": 65
+      }
+    }
+  },
+  "resource_telemetry": {
+    "samples": 6759,
+    "max_gpu_used_mib": 3659,
+    "min_gpu_free_mib": 4298,
+    "min_ram_available_mib": 11219,
+    "max_gpu_temperature_c": 65
+  },
+  "training": {
+    "head": "linear",
+    "hidden_size": 1024,
+    "epochs": 10,
+    "learning_rate": 0.001,
+    "group_batch_size": 64,
+    "seed": 42,
+    "best_epoch": 7,
+    "best_validation_loss": 1.7126454707477645,
+    "best_validation_metrics": {
+      "decisions": 1198,
+      "top1_accuracy": 0.3589315525876461,
+      "top1_accuracy_n_gt_1": 0.2795497185741088,
+      "top3_accuracy": 0.6469115191986644,
+      "expected_random_top1": 0.27905061648350005,
+      "by_action_type": {
+        "ATTACK": {
+          "total": 254,
+          "top1_accuracy": 0.5275590551181102
+        },
+        "END_TURN": {
+          "total": 259,
+          "top1_accuracy": 0.5096525096525096
+        },
+        "HERO_POWER": {
+          "total": 64,
+          "top1_accuracy": 0.0
+        },
+        "LOCATION": {
+          "total": 32,
+          "top1_accuracy": 0.3125
+        },
+        "PLAY": {
+          "total": 587,
+          "top1_accuracy": 0.2606473594548552
+        },
+        "POWER": {
+          "total": 2,
+          "top1_accuracy": 0.5
+        }
+      },
+      "expected_random_top1_n_gt_1": 0.18977733447207606
+    },
+    "history": [
+      {
+        "epoch": 1,
+        "train_loss": 2.028584503568709,
+        "validation_loss": 1.7335840836540486,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.3080133555926544,
+          "top1_accuracy_n_gt_1": 0.2223264540337711,
+          "top3_accuracy": 0.6001669449081803,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.33070866141732286
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.24190800681431004
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.5
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 2,
+        "train_loss": 2.022483156993985,
+        "validation_loss": 1.726288474014088,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.34641068447412354,
+          "top1_accuracy_n_gt_1": 0.2654784240150094,
+          "top3_accuracy": 0.6377295492487479,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.4409448818897638
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.272572402044293
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.5
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 3,
+        "train_loss": 2.017595692537725,
+        "validation_loss": 1.7242698629630826,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.34474123539232054,
+          "top1_accuracy_n_gt_1": 0.26360225140712945,
+          "top3_accuracy": 0.6343906510851419,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5236220472440944
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.23339011925042588
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.5
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 4,
+        "train_loss": 2.0136572355404496,
+        "validation_loss": 1.7219261316106793,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.34307178631051755,
+          "top1_accuracy_n_gt_1": 0.26172607879924953,
+          "top3_accuracy": 0.6469115191986644,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.452755905511811
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.2606473594548552
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.5
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 5,
+        "train_loss": 2.0099485656246543,
+        "validation_loss": 1.7183756059617152,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.34974958263772954,
+          "top1_accuracy_n_gt_1": 0.2692307692307692,
+          "top3_accuracy": 0.6419031719532554,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5393700787401575
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.23679727427597955
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.5
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 6,
+        "train_loss": 2.0074763726443052,
+        "validation_loss": 1.7184170344984393,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.34140233722871455,
+          "top1_accuracy_n_gt_1": 0.2598499061913696,
+          "top3_accuracy": 0.6302170283806344,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5236220472440944
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0625
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.34375
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.21976149914821125
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.0
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 7,
+        "train_loss": 2.0039185117930174,
+        "validation_loss": 1.7126454707477645,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.3589315525876461,
+          "top1_accuracy_n_gt_1": 0.2795497185741088,
+          "top3_accuracy": 0.6469115191986644,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5275590551181102
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.0
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.2606473594548552
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.5
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 8,
+        "train_loss": 2.001240455545485,
+        "validation_loss": 1.7117954837360445,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.3555926544240401,
+          "top1_accuracy_n_gt_1": 0.275797373358349,
+          "top3_accuracy": 0.6427378964941569,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5393700787401575
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.015625
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.24872231686541738
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.0
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 9,
+        "train_loss": 1.9983064671978354,
+        "validation_loss": 1.7134191962783045,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.34974958263772954,
+          "top1_accuracy_n_gt_1": 0.2692307692307692,
+          "top3_accuracy": 0.6343906510851419,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5118110236220472
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.015625
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.3125
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.24872231686541738
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.0
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      },
+      {
+        "epoch": 10,
+        "train_loss": 1.996385706588626,
+        "validation_loss": 1.710810524021246,
+        "validation_metrics": {
+          "decisions": 1198,
+          "top1_accuracy": 0.35141903171953254,
+          "top1_accuracy_n_gt_1": 0.27110694183864914,
+          "top3_accuracy": 0.6368948247078464,
+          "expected_random_top1": 0.27905061648350005,
+          "by_action_type": {
+            "ATTACK": {
+              "total": 254,
+              "top1_accuracy": 0.5236220472440944
+            },
+            "END_TURN": {
+              "total": 259,
+              "top1_accuracy": 0.5096525096525096
+            },
+            "HERO_POWER": {
+              "total": 64,
+              "top1_accuracy": 0.015625
+            },
+            "LOCATION": {
+              "total": 32,
+              "top1_accuracy": 0.34375
+            },
+            "PLAY": {
+              "total": 587,
+              "top1_accuracy": 0.2453151618398637
+            },
+            "POWER": {
+              "total": 2,
+              "top1_accuracy": 0.0
+            }
+          },
+          "expected_random_top1_n_gt_1": 0.18977733447207606
+        }
+      }
+    ],
+    "artifact": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\modernce_ranker\\head.pt"
+  }
+}

@@ -28,6 +28,8 @@ ENV/
 
 # Testing
 .pytest_cache/
+.pytest-tmp-*/
+.smoke-modernce-ranker/
 .coverage
 htmlcov/
 
@@ -39,6 +41,9 @@ data/replays_hsreplay/
 models/
 *.safetensors
 *.bin
+data/processed/modernce_ranker/cache/
+data/processed/modernce_ranker/**/*.pt
+data/processed/modernce_ranker/**/*.log
 .vscode/
 .idea/
 *.swp

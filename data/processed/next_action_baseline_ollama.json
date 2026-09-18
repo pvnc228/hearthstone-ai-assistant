@@ -1,0 +1,45 @@
+{
+  "backend": "ollama",
+  "model": "qwen2.5-coder:7b",
+  "metrics": {
+    "total": 100,
+    "top1_accuracy": 0.0,
+    "format_valid_rate": 0.01,
+    "candidate_exists_rate": 0.01,
+    "latency_ms": {
+      "mean": 577.058,
+      "p50": 527.127,
+      "max": 3504.332
+    },
+    "by_action_type": {
+      "ATTACK": {
+        "total": 31,
+        "top1_accuracy": 0.0,
+        "format_valid_rate": 0.0,
+        "candidate_exists_rate": 0.0
+      },
+      "END_TURN": {
+        "total": 18,
+        "top1_accuracy": 0.0,
+        "format_valid_rate": 0.0,
+        "candidate_exists_rate": 0.0
+      },
+      "HERO_POWER": {
+        "total": 8,
+        "top1_accuracy": 0.0,
+        "format_valid_rate": 0.125,
+        "candidate_exists_rate": 0.125
+      },
+      "PLAY": {
+        "total": 43,
+        "top1_accuracy": 0.0,
+        "format_valid_rate": 0.0,
+        "candidate_exists_rate": 0.0
+      }
+    }
+  },
+  "errors": [],
+  "status": "complete",
+  "input": "C:\\Users\\mist8\\.gemini\\antigravity\\scratch\\hearthstone-ai-assistant\\data\\processed\\next_action_test_chatml.jsonl",
+  "records_requested": 100
+}
