@@ -1,0 +1,1995 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hearthstone AI Assistant — Training Observatory</title>
+  <!-- Inter & JetBrains Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS CDN for exact utility fidelity -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            border: "hsl(240 3.7% 15.9%)",
+            input: "hsl(240 3.7% 15.9%)",
+            ring: "hsl(240 4.9% 83.9%)",
+            background: "hsl(240 10% 3.9%)",
+            foreground: "hsl(0 0% 98%)",
+            primary: {
+              DEFAULT: "hsl(0 0% 98%)",
+              foreground: "hsl(240 5.9% 10%)",
+            },
+            secondary: {
+              DEFAULT: "hsl(240 3.7% 15.9%)",
+              foreground: "hsl(0 0% 98%)",
+            },
+            muted: {
+              DEFAULT: "hsl(240 3.7% 15.9%)",
+              foreground: "hsl(240 5% 64.9%)",
+            },
+            accent: {
+              DEFAULT: "hsl(240 3.7% 15.9%)",
+              foreground: "hsl(0 0% 98%)",
+            },
+            card: {
+              DEFAULT: "hsl(240 10% 3.9%)",
+              foreground: "hsl(0 0% 98%)",
+            },
+            zinc: {
+              950: '#09090b',
+              900: '#18181b',
+              850: '#202024',
+              800: '#27272a',
+              700: '#3f3f46',
+              600: '#52525b',
+              500: '#71717a',
+              400: '#a1a1aa',
+              300: '#d4d4d8',
+              200: '#e4e4e7',
+              100: '#f4f4f5',
+              50: '#fafafa',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #09090b;
+      color: #fafafa;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+      animation: tabFadeIn 0.15s ease-out;
+    }
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #09090b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col selection:bg-zinc-800 selection:text-zinc-100">
+
+  <!-- Top Navigation / Header -->
+  <header class="sticky top-0 z-50 w-full border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+      <!-- Breadcrumb & Brand -->
+      <div class="flex items-center space-x-3 text-sm">
+        <div class="h-6 w-6 rounded bg-zinc-100 text-zinc-950 flex items-center justify-center font-bold text-xs">
+          H
+        </div>
+        <div class="flex items-center space-x-1.5 font-medium">
+          <span class="text-zinc-400">hearthstone-ai</span>
+          <span class="text-zinc-600">/</span>
+          <span class="text-zinc-200" data-i18n="header_observatory">observatory</span>
+        </div>
+        <span class="inline-flex items-center rounded-full border border-zinc-700/60 bg-zinc-900 px-2 py-0.5 text-[11px] font-mono text-zinc-300">
+          schema-v2.4
+        </span>
+      </div>
+
+      <!-- Header Meta & Actions -->
+      <div class="flex items-center space-x-3">
+        <!-- Language Switcher Pills -->
+        <div class="inline-flex items-center rounded-md bg-zinc-900 border border-zinc-800 p-0.5 text-xs font-medium font-mono">
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="en">EN</button>
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="ru">RU</button>
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="zh">ZH</button>
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="ko">KO</button>
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="ja">JA</button>
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="de">DE</button>
+          <button class="lang-btn px-1.5 py-0.5 rounded text-zinc-400 hover:text-zinc-100 transition-colors" data-lang="es">ES</button>
+        </div>
+
+        <div class="hidden sm:flex items-center space-x-2 text-xs font-mono text-zinc-400">
+          <span class="inline-block w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span data-i18n="header_tests">73/73 tests passing</span>
+        </div>
+        <div class="h-4 w-px bg-zinc-800 hidden sm:block"></div>
+        <a href="https://github.com/pvnc228/hearthstone-ai-assistant" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 hover:text-zinc-100 h-8 px-3 text-zinc-300">
+          <svg class="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="currentColor">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          <span data-i18n="header_repo">Repository</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow">
+    
+    <!-- Title / Headline -->
+    <div class="mb-8">
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <span class="inline-flex items-center rounded-md bg-zinc-900 border border-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-300" data-i18n="hero_badge_legend">
+          Ranked Legend Dataset
+        </span>
+        <span class="inline-flex items-center rounded-md bg-zinc-900 border border-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-300" data-i18n="hero_badge_oracle">
+          Option Oracle Contract
+        </span>
+        <span class="inline-flex items-center rounded-md bg-zinc-900 border border-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-300" data-i18n="hero_badge_stack">
+          Dual-Engine Simulator Stack
+        </span>
+      </div>
+      <h1 class="text-3xl font-bold tracking-tight text-zinc-50 sm:text-4xl" data-i18n="hero_title">
+        Hearthstone AI Assistant &mdash; Open Training Observatory
+      </h1>
+      <p class="mt-2 text-sm text-zinc-400 max-w-3xl leading-relaxed" data-i18n="hero_desc">
+        Complete telemetry, zero-leakage game-level splits, deterministic behavioral cloning and cross-validation 
+        against the SabberStone C# rules simulation engine. Grounded on verified JSON artifacts.
+      </p>
+    </div>
+
+    <!-- 6 KPI Metric Cards (shadcn style) -->
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6 mb-8">
+      <!-- Card 1 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-row items-center justify-between pb-1">
+          <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider" data-i18n="kpi_decisions_title">Accepted Decisions</span>
+          <svg class="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div class="text-2xl font-bold font-mono text-zinc-100">12,840</div>
+        <p class="text-[11px] text-emerald-400 mt-1 font-mono" data-i18n="kpi_decisions_sub">87.34% coverage (540 games)</p>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-row items-center justify-between pb-1">
+          <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider" data-i18n="kpi_top1_title">ModernCE Top-1</span>
+          <svg class="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+          </svg>
+        </div>
+        <div class="text-2xl font-bold font-mono text-zinc-100">35.89%</div>
+        <p class="text-[11px] text-emerald-400 mt-1 font-mono" data-i18n="kpi_top1_sub">+8.98 pp over random (N&gt;1)</p>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-row items-center justify-between pb-1">
+          <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider" data-i18n="kpi_splits_title">Zero-Leakage Splits</span>
+          <svg class="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <div class="text-2xl font-bold font-mono text-zinc-100">540</div>
+        <p class="text-[11px] text-zinc-400 mt-1 font-mono" data-i18n="kpi_splits_sub">390 train / 48 val / 48 test</p>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-row items-center justify-between pb-1">
+          <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider" data-i18n="kpi_cards_title">Card Database</span>
+          <svg class="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </div>
+        <div class="text-2xl font-bold font-mono text-zinc-100">35,807</div>
+        <p class="text-[11px] text-zinc-400 mt-1 font-mono" data-i18n="kpi_cards_sub">&gt;22M lookups/s in-memory</p>
+      </div>
+
+      <!-- Card 5 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-row items-center justify-between pb-1">
+          <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider" data-i18n="kpi_quarantine_title">Quarantine Gate</span>
+          <svg class="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div class="text-2xl font-bold font-mono text-zinc-100">1,862</div>
+        <p class="text-[11px] text-rose-400 mt-1 font-mono" data-i18n="kpi_quarantine_sub">1,725 Tradeable semantics</p>
+      </div>
+
+      <!-- Card 6 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-row items-center justify-between pb-1">
+          <span class="text-xs font-medium text-zinc-400 uppercase tracking-wider" data-i18n="kpi_dual_title">Dual-Engine Stack</span>
+          <svg class="w-4 h-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <div class="text-2xl font-bold font-mono text-zinc-100">2 Cores</div>
+        <p class="text-[11px] text-zinc-400 mt-1 font-mono" data-i18n="kpi_dual_sub">Replays + SabberStone C#</p>
+      </div>
+    </div>
+
+    <!-- shadcn Tabs Bar -->
+    <div class="border-b border-zinc-800 mb-6">
+      <div class="inline-flex h-9 items-center justify-start rounded-lg bg-zinc-900 p-1 text-zinc-400 border border-zinc-800/80 overflow-x-auto max-w-full">
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-100 bg-zinc-800 shadow-sm" data-tab="tab-benchmarks" data-i18n="tab_benchmarks">
+          Model Benchmarks
+        </button>
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-400 hover:text-zinc-200" data-tab="tab-dataset" data-i18n="tab_dataset">
+          Dataset &amp; Splits
+        </button>
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-400 hover:text-zinc-200" data-tab="tab-pipeline" data-i18n="tab_pipeline">
+          Training Pipeline
+        </button>
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-400 hover:text-zinc-200" data-tab="tab-modernce" data-i18n="tab_modernce">
+          ModernCE &amp; Action Collapse
+        </button>
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-400 hover:text-zinc-200" data-tab="tab-sabberstone" data-i18n="tab_sabberstone">
+          SabberStone Simulation
+        </button>
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-400 hover:text-zinc-200" data-tab="tab-telemetry" data-i18n="tab_telemetry">
+          Hardware &amp; ResourceGuard
+        </button>
+        <button class="tab-trigger inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all text-zinc-400 hover:text-zinc-200" data-tab="tab-repro" data-i18n="tab_repro">
+          CLI Runbook
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 1: BENCHMARKS -->
+    <div id="tab-benchmarks" class="tab-content active space-y-6">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <div class="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
+          <div>
+            <h3 class="text-base font-semibold text-zinc-100" data-i18n="benchmarks_title">Next-Action Decision Selection Benchmarks</h3>
+            <p class="text-xs text-zinc-400 mt-0.5" data-i18n="benchmarks_subtitle">Evaluated on frozen validation split (1,198 decisions / 10,638 candidate pairs across 48 unseen games).</p>
+          </div>
+          <span class="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] font-mono text-zinc-300" data-i18n="benchmarks_badge">
+            N &gt; 1 Decisions: 1,066
+          </span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-zinc-800 text-zinc-400 font-medium uppercase tracking-wider font-sans">
+                <th class="py-3 px-3" data-i18n="col_model">Model / Configuration</th>
+                <th class="py-3 px-3" data-i18n="col_paradigm">Paradigm</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_top1_all">Top-1 (All)</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_top1_n1">Top-1 (N&gt;1)</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_top3">Top-3 (All)</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_latency">Latency p50</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_status">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-800/60 font-mono">
+              <tr class="hover:bg-zinc-800/30">
+                <td class="py-3 px-3 font-sans font-medium text-zinc-300" data-i18n="row_random_name">Uniform Random Baseline</td>
+                <td class="py-3 px-3 text-zinc-400 font-sans" data-i18n="row_random_paradigm">Stochastic</td>
+                <td class="py-3 px-3 text-right text-zinc-400">27.90%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">18.98%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">58.20%</td>
+                <td class="py-3 px-3 text-right text-zinc-500">&lt;0.01 ms</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="text-zinc-500" data-i18n="status_baseline">Baseline</span></td>
+              </tr>
+              <tr class="hover:bg-zinc-800/30">
+                <td class="py-3 px-3 font-sans font-medium text-zinc-300" data-i18n="row_first_name">First-Candidate Heuristic</td>
+                <td class="py-3 px-3 text-zinc-400 font-sans" data-i18n="row_first_paradigm">Order heuristic</td>
+                <td class="py-3 px-3 text-right text-zinc-400">21.49%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">11.91%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">46.30%</td>
+                <td class="py-3 px-3 text-right text-zinc-500">&lt;0.01 ms</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="text-zinc-500" data-i18n="status_subrandom">Sub-random</span></td>
+              </tr>
+              <tr class="hover:bg-zinc-800/30">
+                <td class="py-3 px-3 font-sans font-medium text-zinc-300" data-i18n="row_zero_name">ModernCE-large-nli (395M)</td>
+                <td class="py-3 px-3 text-zinc-400 font-sans" data-i18n="row_zero_paradigm">Zero-shot NLI</td>
+                <td class="py-3 px-3 text-right text-zinc-300">31.55%</td>
+                <td class="py-3 px-3 text-right text-zinc-300">23.08%</td>
+                <td class="py-3 px-3 text-right text-zinc-300">60.10%</td>
+                <td class="py-3 px-3 text-right text-zinc-300">74.2 ms</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="text-rose-400" data-i18n="status_rejected_hp">Rejected (HP=0%)</span></td>
+              </tr>
+              <tr class="bg-zinc-800/40 border-l-2 border-emerald-500">
+                <td class="py-3 px-3 font-sans font-semibold text-emerald-400 flex items-center">
+                  <span data-i18n="row_linear_name">ModernCE Supervised Linear Head</span>
+                  <span class="ml-2 text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800/60 rounded px-1.5 py-0.2" data-i18n="badge_best">Best</span>
+                </td>
+                <td class="py-3 px-3 text-zinc-300 font-sans" data-i18n="row_linear_paradigm">Frozen 1024d + Listwise Head</td>
+                <td class="py-3 px-3 text-right text-emerald-400 font-bold">35.89%</td>
+                <td class="py-3 px-3 text-right text-emerald-400 font-bold">27.95%</td>
+                <td class="py-3 px-3 text-right text-emerald-400 font-bold">64.69%</td>
+                <td class="py-3 px-3 text-right text-zinc-300">&lt;15 ms (head)</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="text-emerald-400" data-i18n="status_validated">Validated</span></td>
+              </tr>
+              <tr class="hover:bg-zinc-800/30">
+                <td class="py-3 px-3 font-sans font-medium text-zinc-300" data-i18n="row_weights_name">Tempered Class Weights (&alpha;=0.25)</td>
+                <td class="py-3 px-3 text-zinc-400 font-sans" data-i18n="row_weights_paradigm">Loss weighting</td>
+                <td class="py-3 px-3 text-right text-zinc-400">34.14%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">25.98%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">63.02%</td>
+                <td class="py-3 px-3 text-right text-zinc-400">&lt;15 ms</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="text-rose-400" data-i18n="status_action_collapse">Action Collapse</span></td>
+              </tr>
+              <tr class="hover:bg-zinc-800/30">
+                <td class="py-3 px-3 font-sans font-medium text-zinc-400" data-i18n="row_qwen_name">Qwen-2.5-1.5B (Auto-regressive SFT)</td>
+                <td class="py-3 px-3 text-zinc-500 font-sans" data-i18n="row_qwen_paradigm">Generative SFT</td>
+                <td class="py-3 px-3 text-right text-zinc-600">&mdash;</td>
+                <td class="py-3 px-3 text-right text-zinc-600">&mdash;</td>
+                <td class="py-3 px-3 text-right text-zinc-600">&mdash;</td>
+                <td class="py-3 px-3 text-right text-zinc-600">800&ndash;1200 ms</td>
+                <td class="py-3 px-3 text-right font-sans"><span class="text-amber-400" data-i18n="status_blocked_cuda">Blocked (CUDA)</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Core Methodological Tenets -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-2" data-i18n="tenet1_title">1. Factual Grounded Reporting</h4>
+          <p class="text-xs text-zinc-400 leading-relaxed font-sans" data-i18n="tenet1_desc">
+            Every metric reported is parsed directly from SHA-256 validated reports. Zero optimistic projection; failure modes like HERO_POWER=0% and Action Collapse are prominently disclosed.
+          </p>
+        </div>
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-2" data-i18n="tenet2_title">2. Zero Data Leakage Protocol</h4>
+          <p class="text-xs text-zinc-400 leading-relaxed font-sans" data-i18n="tenet2_desc">
+            All splits are partitioned strictly on the game level (540 unique IDs). Shuffling individual turns within a match is forbidden to prevent game-state / deck-list memorization.
+          </p>
+        </div>
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-2" data-i18n="tenet3_title">3. Replay Option Oracle</h4>
+          <p class="text-xs text-zinc-400 leading-relaxed font-sans" data-i18n="tenet3_desc">
+            Decisions are extracted from Blizzard engine logs (DebugPrintOptions error=NONE). The candidate set is exact, deterministic, and compliance-checked.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: DATASET & SPLITS -->
+    <div id="tab-dataset" class="tab-content space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Action Types Breakdown Card -->
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+          <h3 class="text-base font-semibold text-zinc-100 mb-1" data-i18n="dist_title">Accepted Action Distribution (Schema v2)</h3>
+          <p class="text-xs text-zinc-400 mb-6" data-i18n="dist_subtitle">Total decisions: 12,840 from 540 ranked-win replays.</p>
+          
+          <div class="space-y-4">
+            <div>
+              <div class="flex justify-between text-xs font-mono mb-1.5">
+                <span class="text-zinc-200 font-medium" data-i18n="action_play">PLAY (Play Card)</span>
+                <span class="text-zinc-400">5,768 (44.92%)</span>
+              </div>
+              <div class="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div class="h-full bg-sky-500 rounded-full" style="width: 44.92%"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-mono mb-1.5">
+                <span class="text-zinc-200 font-medium" data-i18n="action_attack">ATTACK (Minion / Hero)</span>
+                <span class="text-zinc-400">3,406 (26.53%)</span>
+              </div>
+              <div class="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div class="h-full bg-rose-500 rounded-full" style="width: 26.53%"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-mono mb-1.5">
+                <span class="text-zinc-200 font-medium" data-i18n="action_end_turn">END_TURN (Pass)</span>
+                <span class="text-zinc-400">2,762 (21.51%)</span>
+              </div>
+              <div class="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-500 rounded-full" style="width: 21.51%"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-mono mb-1.5">
+                <span class="text-zinc-200 font-medium" data-i18n="action_hero_power">HERO_POWER</span>
+                <span class="text-zinc-400">598 (4.66%)</span>
+              </div>
+              <div class="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div class="h-full bg-purple-500 rounded-full" style="width: 4.66%"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-mono mb-1.5">
+                <span class="text-zinc-200 font-medium" data-i18n="action_location">LOCATION (Board Ability)</span>
+                <span class="text-zinc-400">294 (2.29%)</span>
+              </div>
+              <div class="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div class="h-full bg-emerald-500 rounded-full" style="width: 2.29%"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs font-mono mb-1.5">
+                <span class="text-zinc-200 font-medium" data-i18n="action_power">POWER (Special Titan/Sub)</span>
+                <span class="text-zinc-400">12 (0.09%)</span>
+              </div>
+              <div class="h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                <div class="h-full bg-zinc-500 rounded-full" style="width: 1%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quarantine Transparency Card -->
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+          <div class="flex items-center justify-between pb-2 mb-2">
+            <div>
+              <h3 class="text-base font-semibold text-zinc-100" data-i18n="quarantine_title">Quarantine Gate Analysis</h3>
+              <p class="text-xs text-zinc-400" data-i18n="quarantine_subtitle">1,862 records isolated to preserve dataset fidelity.</p>
+            </div>
+            <span class="inline-flex items-center rounded-md border border-rose-800/60 bg-rose-950/40 px-2 py-0.5 text-xs font-mono text-rose-300" data-i18n="quarantine_badge">
+              12.66% quarantined
+            </span>
+          </div>
+
+          <div class="overflow-x-auto mt-4">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="border-b border-zinc-800 text-zinc-400 font-medium uppercase font-sans">
+                  <th class="py-2.5 px-3" data-i18n="col_q_trigger">Quarantine Trigger</th>
+                  <th class="py-2.5 px-3 text-right" data-i18n="col_q_count">Count</th>
+                  <th class="py-2.5 px-3 text-right" data-i18n="col_q_share">Share</th>
+                  <th class="py-2.5 px-3" data-i18n="col_q_res">Resolution Path</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-zinc-800/60 font-mono">
+                <tr>
+                  <td class="py-2.5 px-3 text-zinc-300">tradeable_option_semantics_unproven</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-zinc-100">1,725</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">92.64%</td>
+                  <td class="py-2.5 px-3 font-sans text-zinc-400" data-i18n="q_res_tradeable">Log format formalization</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 text-zinc-300">candidate_mana_cost_mismatch</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-zinc-100">105</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">5.64%</td>
+                  <td class="py-2.5 px-3 font-sans text-zinc-400" data-i18n="q_res_mana">Dynamic aura reconstruction</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 text-zinc-300">suboption_target_cross_product_unproven</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-zinc-100">32</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">1.72%</td>
+                  <td class="py-2.5 px-3 font-sans text-zinc-400" data-i18n="q_res_subopt">Choose-one targeting matrix</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-4 p-3 rounded-lg bg-zinc-950/60 border border-zinc-800/80 text-xs text-zinc-400 leading-relaxed font-sans" data-i18n="quarantine_note">
+            <strong>Zero Violations in Accepted Set:</strong> Isolating these decisions guarantees that 0 unproven mechanics pollute the SFT and ranker training distributions.
+          </div>
+        </div>
+      </div>
+
+      <!-- Frozen Splits Table Card -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-zinc-800">
+          <div>
+            <h3 class="text-base font-semibold text-zinc-100" data-i18n="splits_title">Frozen Split Partitioning Matrix</h3>
+            <p class="text-xs font-mono text-zinc-400">Manifest: next_action_split_manifest_v1.json (SHA-256: 49d5a8163d...)</p>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-zinc-800 text-zinc-400 font-medium uppercase font-sans">
+                <th class="py-3 px-3" data-i18n="col_split">Split</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_games">Games</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_decisions">Decisions</th>
+                <th class="py-3 px-3 text-right" data-i18n="col_pct">Percentage</th>
+                <th class="py-3 px-3" data-i18n="col_role">Role</th>
+                <th class="py-3 px-3 font-mono" data-i18n="col_artifact">ChatML Source Artifact</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-800/60 font-mono">
+              <tr>
+                <td class="py-3 px-3 font-sans font-medium text-sky-400">Train</td>
+                <td class="py-3 px-3 text-right">390</td>
+                <td class="py-3 px-3 text-right font-bold text-zinc-100">9,320</td>
+                <td class="py-3 px-3 text-right text-zinc-400">72.59%</td>
+                <td class="py-3 px-3 font-sans text-zinc-300" data-i18n="split_role_train">Weights &amp; Head optimization</td>
+                <td class="py-3 px-3 text-zinc-400">next_action_train_chatml.jsonl (108.8 MB)</td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-sans font-medium text-amber-400">Validation</td>
+                <td class="py-3 px-3 text-right">48</td>
+                <td class="py-3 px-3 text-right font-bold text-zinc-100">1,198</td>
+                <td class="py-3 px-3 text-right text-zinc-400">9.33%</td>
+                <td class="py-3 px-3 font-sans text-zinc-300" data-i18n="split_role_val">Model selection &amp; early stop</td>
+                <td class="py-3 px-3 text-zinc-400">next_action_validation_chatml.jsonl (13.2 MB)</td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-sans font-medium text-emerald-400">Test</td>
+                <td class="py-3 px-3 text-right">48</td>
+                <td class="py-3 px-3 text-right font-bold text-zinc-100">1,117</td>
+                <td class="py-3 px-3 text-right text-zinc-400">8.70%</td>
+                <td class="py-3 px-3 font-sans text-zinc-300" data-i18n="split_role_test">Strict blind evaluation (unopened)</td>
+                <td class="py-3 px-3 text-zinc-400">next_action_test_chatml.jsonl (13.0 MB)</td>
+              </tr>
+              <tr>
+                <td class="py-3 px-3 font-sans font-medium text-purple-400">Temporal Holdout</td>
+                <td class="py-3 px-3 text-right">54</td>
+                <td class="py-3 px-3 text-right font-bold text-zinc-100">1,205</td>
+                <td class="py-3 px-3 text-right text-zinc-400">9.38%</td>
+                <td class="py-3 px-3 font-sans text-zinc-300" data-i18n="split_role_holdout">Chronological distribution drift</td>
+                <td class="py-3 px-3 text-zinc-400">next_action_temporal_holdout_chatml.jsonl (13.0 MB)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: TRAINING PIPELINE -->
+    <div id="tab-pipeline" class="tab-content space-y-6">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <h3 class="text-base font-semibold text-zinc-100 mb-6" data-i18n="pipeline_title">End-to-End Imitation Learning Pipeline</h3>
+
+        <div class="relative pl-6 border-l border-zinc-800 space-y-8">
+          <!-- Stage 1 -->
+          <div class="relative">
+            <div class="absolute -left-[31px] top-0 h-4 w-4 rounded-full border border-emerald-500 bg-zinc-950"></div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-semibold text-emerald-400">PHASE 1</span>
+              <span class="text-sm font-semibold text-zinc-100" data-i18n="p1_title">Card Database &amp; TokenGraph Ingestion</span>
+              <span class="inline-flex items-center rounded bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300" data-i18n="badge_completed">Completed</span>
+            </div>
+            <p class="mt-1 text-xs text-zinc-400 leading-relaxed max-w-3xl font-sans" data-i18n="p1_desc">
+              Parsing 35,807 card entities from HDT XML dictionaries into an optimized SQLite cache with instant O(1) in-memory lookups (&gt;22M/s). Integrated TokenGraph (8,661 cards, 6,069 relationships) to provide structural context.
+            </p>
+          </div>
+
+          <!-- Stage 2 -->
+          <div class="relative">
+            <div class="absolute -left-[31px] top-0 h-4 w-4 rounded-full border border-emerald-500 bg-zinc-950"></div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-semibold text-emerald-400">PHASE 2</span>
+              <span class="text-sm font-semibold text-zinc-100" data-i18n="p2_title">Replay Streaming &amp; Option Oracle Contract</span>
+              <span class="inline-flex items-center rounded bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300" data-i18n="badge_completed">Completed</span>
+            </div>
+            <p class="mt-1 text-xs text-zinc-400 leading-relaxed max-w-3xl font-sans" data-i18n="p2_desc">
+              Stream-reading 1,041 .hdtreplay archives without disk extraction. GameStateTracker reconstructs boards, zones, and captures Blizzard DebugPrintOptions error=NONE and SendOption events to produce Schema v2.
+            </p>
+          </div>
+
+          <!-- Stage 3 -->
+          <div class="relative">
+            <div class="absolute -left-[31px] top-0 h-4 w-4 rounded-full border border-emerald-500 bg-zinc-950"></div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-semibold text-emerald-400">PHASE 3</span>
+              <span class="text-sm font-semibold text-zinc-100" data-i18n="p3_title">Tactical Coach &amp; Lethal Burst Detector</span>
+              <span class="inline-flex items-center rounded bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 text-[10px] font-mono text-emerald-300" data-i18n="badge_completed">Completed</span>
+            </div>
+            <p class="mt-1 text-xs text-zinc-400 leading-relaxed max-w-3xl font-sans" data-i18n="p3_desc">
+              Deterministic post-game evaluator (src/coach/analyzer.py) computing max burst lethal potential, mana efficiency, and tempo curves. Forms the verification baseline for detecting tactical blunders.
+            </p>
+          </div>
+
+          <!-- Stage 4 -->
+          <div class="relative">
+            <div class="absolute -left-[31px] top-0 h-4 w-4 rounded-full border border-amber-500 bg-zinc-950"></div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-semibold text-amber-400">PHASE 4</span>
+              <span class="text-sm font-semibold text-zinc-100" data-i18n="p4_title">Supervised Fine-Tuning (QLoRA ChatML)</span>
+              <span class="inline-flex items-center rounded bg-amber-950/60 border border-amber-800/40 px-1.5 py-0.5 text-[10px] font-mono text-amber-300" data-i18n="badge_blocked_cuda">Blocked on CUDA</span>
+            </div>
+            <p class="mt-1 text-xs text-zinc-400 leading-relaxed max-w-3xl font-sans" data-i18n="p4_desc">
+              Autoregressive token generation trainer (src/llm/train_qlora.py) targeting Qwen-2.5-Coder-7B with 4-bit NF4 quantization. Currently held at gate pending isolated CUDA PyTorch environment.
+            </p>
+          </div>
+
+          <!-- Stage 5 -->
+          <div class="relative">
+            <div class="absolute -left-[31px] top-0 h-4 w-4 rounded-full border border-sky-500 bg-zinc-950"></div>
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-semibold text-sky-400">PHASE 5</span>
+              <span class="text-sm font-semibold text-zinc-100" data-i18n="p5_title">NLI Cross-Encoder / Jev Ranking Architecture</span>
+              <span class="inline-flex items-center rounded bg-sky-950/60 border border-sky-800/40 px-1.5 py-0.5 text-[10px] font-mono text-sky-300" data-i18n="badge_active">Active</span>
+            </div>
+            <p class="mt-1 text-xs text-zinc-400 leading-relaxed max-w-3xl font-sans" data-i18n="p5_desc">
+              One-pass scoring of candidate decisions via ModernCE-large-nli (395M) and listwise linear projection. Bypasses autoregressive token generation latency (15ms vs 1200ms) with 0% candidate hallucination risk.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: MODERNCE & ACTION COLLAPSE -->
+    <div id="tab-modernce" class="tab-content space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Action Breakdown Table -->
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+          <h3 class="text-base font-semibold text-zinc-100 mb-1" data-i18n="breakdown_title">ModernCE Supervised Head: Breakdown</h3>
+          <p class="text-xs text-zinc-400 mb-4" data-i18n="breakdown_subtitle">Class accuracy comparison on 1,198 validation decisions.</p>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono">
+              <thead>
+                <tr class="border-b border-zinc-800 text-zinc-400 font-medium font-sans uppercase">
+                  <th class="py-2.5 px-3" data-i18n="col_action">Action Type</th>
+                  <th class="py-2.5 px-3 text-right" data-i18n="col_samples">Samples</th>
+                  <th class="py-2.5 px-3 text-right" data-i18n="col_zero">Zero-Shot</th>
+                  <th class="py-2.5 px-3 text-right" data-i18n="col_linear">Linear Head</th>
+                  <th class="py-2.5 px-3 text-right" data-i18n="col_delta">Delta</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-zinc-800/60">
+                <tr>
+                  <td class="py-2.5 px-3 font-sans font-medium text-zinc-200">ATTACK</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">254</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">32.28%</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-emerald-400">52.76%</td>
+                  <td class="py-2.5 px-3 text-right text-emerald-400">+20.48 pp</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-sans font-medium text-zinc-200">END_TURN</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">259</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">50.97%</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-zinc-200">50.97%</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-500">&plusmn;0.00 pp</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-sans font-medium text-zinc-200">PLAY</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">587</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">26.06%</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-zinc-200">26.06%</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-500">&plusmn;0.00 pp</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-sans font-medium text-zinc-200">LOCATION</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">32</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">31.25%</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-zinc-200">31.25%</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-500">&plusmn;0.00 pp</td>
+                </tr>
+                <tr class="bg-rose-950/20">
+                  <td class="py-2.5 px-3 font-sans font-medium text-rose-400">HERO_POWER</td>
+                  <td class="py-2.5 px-3 text-right text-zinc-400">64</td>
+                  <td class="py-2.5 px-3 text-right text-rose-400">0.00%</td>
+                  <td class="py-2.5 px-3 text-right font-bold text-rose-400">0.00%</td>
+                  <td class="py-2.5 px-3 text-right text-rose-400" data-i18n="status_blocker">Blocker</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Action Collapse Analysis -->
+        <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-4">
+          <h3 class="text-base font-semibold text-zinc-100" data-i18n="collapse_title">Analysis: The Action Collapse Failure Mode</h3>
+          <p class="text-xs text-zinc-400 leading-relaxed font-sans" data-i18n="collapse_desc">
+            In experiment tuning_tempered, class-weight power scaling (w^&alpha;) was tested across &alpha; &isin; {0.25, 0.50, 0.75} to resolve zero-accuracy on HERO_POWER.
+          </p>
+          <div class="p-3.5 rounded-lg border border-rose-800/50 bg-rose-950/20 text-xs text-rose-300 leading-relaxed font-sans" data-i18n="collapse_box">
+            <strong>Catastrophic Degradation:</strong> Boosting weights for rare classes severely penalized the dominant PLAY class, causing its accuracy to plummet from 26.06% down to 8.14%&ndash;15.70%. All weighted variants failed the non-inferiority gate.
+          </div>
+          <div>
+            <h4 class="text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1" data-i18n="solution_title">Architectural Solution: Factorized Ranker</h4>
+            <div class="p-3 rounded bg-zinc-950 border border-zinc-800 font-mono text-[11px] text-zinc-300">
+              P(action) = P(type | state, legal_types) &times; P(candidate | type, state)
+            </div>
+            <p class="text-[11px] text-zinc-400 mt-2 leading-relaxed font-sans" data-i18n="solution_desc">
+              Decoupling macro-action type gating from within-type candidate ranking prevents rare-class loss inflation from contaminating card-play representations.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: SABBERSTONE SIMULATION -->
+    <div id="tab-sabberstone" class="tab-content space-y-6">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <div class="flex items-center justify-between pb-3 mb-4 border-b border-zinc-800">
+          <div>
+            <h3 class="text-base font-semibold text-zinc-100" data-i18n="sabber_title">Dual-Engine AI Stack: Assistant &amp; SabberStone Simulator</h3>
+            <p class="text-xs text-zinc-400" data-i18n="sabber_subtitle">Autonomous integration with C# .NET Core engine at D:\AI\SabberStone.</p>
+          </div>
+          <span class="inline-flex items-center rounded-md border border-emerald-800/60 bg-emerald-950/40 px-2 py-0.5 text-xs font-mono text-emerald-300" data-i18n="sabber_badge">
+            C# Core: Exit Code 0
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 my-4">
+          <!-- Engine 1 -->
+          <div class="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
+            <span class="text-[10px] font-mono uppercase tracking-wider text-zinc-500" data-i18n="engine1_tag">Perception &amp; Decision Runtime</span>
+            <h4 class="text-sm font-semibold text-zinc-100 mt-0.5 mb-2" data-i18n="engine1_title">Hearthstone AI Assistant</h4>
+            <ul class="text-xs text-zinc-400 space-y-1.5 font-sans" data-i18n="engine1_features">
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> Python 3.13, PyTorch, Ollama, Transformers</li>
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> 1,041 human Legend-rank game replays</li>
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> TokenGraph semantic card representations</li>
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> Real-time option oracle candidate parsing</li>
+            </ul>
+          </div>
+
+          <!-- Engine 2 -->
+          <div class="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
+            <span class="text-[10px] font-mono uppercase tracking-wider text-zinc-500" data-i18n="engine2_tag">Rules Engine &amp; Synthetic Generator</span>
+            <h4 class="text-sm font-semibold text-zinc-100 mt-0.5 mb-2" data-i18n="engine2_title">SabberStone Core Engine</h4>
+            <ul class="text-xs text-zinc-400 space-y-1.5 font-sans" data-i18n="engine2_features">
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> C# .NET Core (Release build: 0 errors / 0 warnings)</li>
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> High-speed deterministic game-state simulation</li>
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> Counterfactual search: branch rollout evaluation</li>
+              <li class="flex items-center"><span class="text-emerald-400 mr-1.5">&bull;</span> Phase P6: Synthetic trajectory export to Schema v2</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-300 space-y-2">
+          <div class="font-semibold text-zinc-100" data-i18n="dpo_title">Post-Training Synergies (Negative Self-Distillation / DPO):</div>
+          <p class="text-zinc-400 leading-relaxed font-sans" data-i18n="dpo_desc">
+            Human replays provide expert positive trajectories but lack counterfactual exploration. SabberStone simulates alternative candidate actions to deterministically verify whether non-chosen options lead to defeat, loss of lethal, or illegal board states &mdash; providing rigorous preference pairs ([Prompt, Chosen, Rejected]) for DPO training without hallucinated feedback.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: TELEMETRY -->
+    <div id="tab-telemetry" class="tab-content space-y-6">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <div class="flex items-center justify-between pb-3 mb-4 border-b border-zinc-800">
+          <div>
+            <h3 class="text-base font-semibold text-zinc-100" data-i18n="telem_title">ResourceGuard Hardware Profile (RTX 4060)</h3>
+            <p class="text-xs text-zinc-400" data-i18n="telem_subtitle">6,759 live telemetry watchdog samples during full 102,469 candidate feature extraction.</p>
+          </div>
+          <span class="inline-flex items-center rounded-md border border-emerald-800/60 bg-emerald-950/40 px-2 py-0.5 text-xs font-mono text-emerald-300" data-i18n="telem_badge">
+            0 Faults / 0 OOM
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono">
+          <div class="p-4 rounded-lg bg-zinc-950 border border-zinc-800">
+            <span class="text-[11px] text-zinc-500 font-sans uppercase" data-i18n="telem_peak_gpu">Peak GPU VRAM Used</span>
+            <div class="text-xl font-bold text-zinc-100 mt-1">3,659 MiB</div>
+            <span class="text-[11px] text-emerald-400 font-sans" data-i18n="telem_gpu_sub">Under 4,096 MiB safety cap</span>
+          </div>
+          <div class="p-4 rounded-lg bg-zinc-950 border border-zinc-800">
+            <span class="text-[11px] text-zinc-500 font-sans uppercase" data-i18n="telem_min_vram">Min Free GPU VRAM</span>
+            <div class="text-xl font-bold text-zinc-100 mt-1">4,298 MiB</div>
+            <span class="text-[11px] text-emerald-400 font-sans" data-i18n="telem_vram_sub">Guaranteed headroom &gt; 4 GB</span>
+          </div>
+          <div class="p-4 rounded-lg bg-zinc-950 border border-zinc-800">
+            <span class="text-[11px] text-zinc-500 font-sans uppercase" data-i18n="telem_min_ram">Min System RAM Available</span>
+            <div class="text-xl font-bold text-zinc-100 mt-1">11,219 MiB</div>
+            <span class="text-[11px] text-emerald-400 font-sans" data-i18n="telem_ram_sub">Healthy buffer &gt; 8 GB</span>
+          </div>
+          <div class="p-4 rounded-lg bg-zinc-950 border border-zinc-800">
+            <span class="text-[11px] text-zinc-500 font-sans uppercase" data-i18n="telem_peak_temp">Peak GPU Core Temp</span>
+            <div class="text-xl font-bold text-zinc-100 mt-1">65 &deg;C</div>
+            <span class="text-[11px] text-emerald-400 font-sans" data-i18n="telem_temp_sub">Well below 75 &deg;C throttle</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 7: CLI REPRO -->
+    <div id="tab-repro" class="tab-content space-y-6">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+        <h3 class="text-base font-semibold text-zinc-100 mb-2" data-i18n="repro_title">CLI Reproduction Commands</h3>
+        <p class="text-xs text-zinc-400 mb-6 font-sans" data-i18n="repro_subtitle">
+          One-line shell commands to reproduce all stages from repository root.
+        </p>
+
+        <div class="space-y-4 font-mono text-xs">
+          <div>
+            <div class="text-zinc-400 mb-1 font-sans text-xs" data-i18n="repro_step1">1. Run 73-test verification suite:</div>
+            <div class="p-3 bg-zinc-950 rounded-md border border-zinc-800 flex justify-between items-center">
+              <span class="text-zinc-200">python -m pytest tests/ -q --tb=short</span>
+              <button class="text-[11px] text-zinc-400 hover:text-zinc-100 px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900" onclick="navigator.clipboard.writeText('python -m pytest tests/ -q --tb=short')" data-i18n="btn_copy">Copy</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-zinc-400 mb-1 font-sans text-xs" data-i18n="repro_step2">2. Index 35,807 cards and build TokenGraph cache:</div>
+            <div class="p-3 bg-zinc-950 rounded-md border border-zinc-800 flex justify-between items-center">
+              <span class="text-zinc-200">python -m src.card_db.indexer</span>
+              <button class="text-[11px] text-zinc-400 hover:text-zinc-100 px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900" onclick="navigator.clipboard.writeText('python -m src.card_db.indexer')" data-i18n="btn_copy">Copy</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-zinc-400 mb-1 font-sans text-xs" data-i18n="repro_step3">3. Generate production next-action schema v2 dataset:</div>
+            <div class="p-3 bg-zinc-950 rounded-md border border-zinc-800 flex justify-between items-center">
+              <span class="text-zinc-200">python -m src.parser.next_action_dataset</span>
+              <button class="text-[11px] text-zinc-400 hover:text-zinc-100 px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900" onclick="navigator.clipboard.writeText('python -m src.parser.next_action_dataset')" data-i18n="btn_copy">Copy</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-zinc-400 mb-1 font-sans text-xs" data-i18n="repro_step4">4. Build SabberStoneCore C# engine (Release):</div>
+            <div class="p-3 bg-zinc-950 rounded-md border border-zinc-800 flex justify-between items-center">
+              <span class="text-zinc-200">cd D:\AI\SabberStone ; dotnet build SabberStoneCore/SabberStoneCore.csproj -c Release --nologo</span>
+              <button class="text-[11px] text-zinc-400 hover:text-zinc-100 px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900" onclick="navigator.clipboard.writeText('cd D:\\AI\\SabberStone ; dotnet build SabberStoneCore/SabberStoneCore.csproj -c Release --nologo')" data-i18n="btn_copy">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-zinc-800 py-6 mt-12 bg-zinc-950 text-xs text-zinc-500">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-2">
+      <div data-i18n="footer_title">
+        Hearthstone AI Assistant &amp; SabberStone Ecosystem &bull; Open Source Research Suite
+      </div>
+      <div class="font-mono text-[11px]">
+        Design: shadcn/ui &bull; <span data-i18n="footer_verified">Verified: 2026-09-18</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Multilingual & Tabs Engine -->
+  <script>
+    const i18nData = {
+      en: {
+        header_observatory: "observatory",
+        header_tests: "73/73 tests passing",
+        header_repo: "Repository",
+        hero_badge_legend: "Ranked Legend Dataset",
+        hero_badge_oracle: "Option Oracle Contract",
+        hero_badge_stack: "Dual-Engine Simulator Stack",
+        hero_title: "Hearthstone AI Assistant — Open Training Observatory",
+        hero_desc: "Complete telemetry, zero-leakage game-level splits, deterministic behavioral cloning and cross-validation against the SabberStone C# rules simulation engine. Grounded on verified JSON artifacts.",
+        kpi_decisions_title: "Accepted Decisions",
+        kpi_decisions_sub: "87.34% coverage (540 games)",
+        kpi_top1_title: "ModernCE Top-1",
+        kpi_top1_sub: "+8.98 pp over random (N>1)",
+        kpi_splits_title: "Zero-Leakage Splits",
+        kpi_splits_sub: "390 train / 48 val / 48 test",
+        kpi_cards_title: "Card Database",
+        kpi_cards_sub: ">22M lookups/s in-memory",
+        kpi_quarantine_title: "Quarantine Gate",
+        kpi_quarantine_sub: "1,725 Tradeable semantics",
+        kpi_dual_title: "Dual-Engine Stack",
+        kpi_dual_sub: "Replays + SabberStone C#",
+        tab_benchmarks: "Model Benchmarks",
+        tab_dataset: "Dataset & Splits",
+        tab_pipeline: "Training Pipeline",
+        tab_modernce: "ModernCE & Action Collapse",
+        tab_sabberstone: "SabberStone Simulation",
+        tab_telemetry: "Hardware & ResourceGuard",
+        tab_repro: "CLI Runbook",
+        benchmarks_title: "Next-Action Decision Selection Benchmarks",
+        benchmarks_subtitle: "Evaluated on frozen validation split (1,198 decisions / 10,638 candidate pairs across 48 unseen games).",
+        benchmarks_badge: "N > 1 Decisions: 1,066",
+        col_model: "Model / Configuration",
+        col_paradigm: "Paradigm",
+        col_top1_all: "Top-1 (All)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (All)",
+        col_latency: "Latency p50",
+        col_status: "Status",
+        row_random_name: "Uniform Random Baseline",
+        row_random_paradigm: "Stochastic",
+        status_baseline: "Baseline",
+        row_first_name: "First-Candidate Heuristic",
+        row_first_paradigm: "Order heuristic",
+        status_subrandom: "Sub-random",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "Zero-shot NLI",
+        status_rejected_hp: "Rejected (HP=0%)",
+        row_linear_name: "ModernCE Supervised Linear Head",
+        badge_best: "Best",
+        row_linear_paradigm: "Frozen 1024d + Listwise Head",
+        status_validated: "Validated",
+        row_weights_name: "Tempered Class Weights (α=0.25)",
+        row_weights_paradigm: "Loss weighting",
+        status_action_collapse: "Action Collapse",
+        row_qwen_name: "Qwen-2.5-1.5B (Auto-regressive SFT)",
+        row_qwen_paradigm: "Generative SFT",
+        status_blocked_cuda: "Blocked (CUDA)",
+        tenet1_title: "1. Factual Grounded Reporting",
+        tenet1_desc: "Every metric reported is parsed directly from SHA-256 validated reports. Zero optimistic projection; failure modes like HERO_POWER=0% and Action Collapse are prominently disclosed.",
+        tenet2_title: "2. Zero Data Leakage Protocol",
+        tenet2_desc: "All splits are partitioned strictly on the game level (540 unique IDs). Shuffling individual turns within a match is forbidden to prevent game-state / deck-list memorization.",
+        tenet3_title: "3. Replay Option Oracle",
+        tenet3_desc: "Decisions are extracted from Blizzard engine logs (DebugPrintOptions error=NONE). The candidate set is exact, deterministic, and compliance-checked.",
+        dist_title: "Accepted Action Distribution (Schema v2)",
+        dist_subtitle: "Total decisions: 12,840 from 540 ranked-win replays.",
+        action_play: "PLAY (Play Card)",
+        action_attack: "ATTACK (Minion / Hero)",
+        action_end_turn: "END_TURN (Pass)",
+        action_hero_power: "HERO_POWER",
+        action_location: "LOCATION (Board Ability)",
+        action_power: "POWER (Special Titan/Sub)",
+        quarantine_title: "Quarantine Gate Analysis",
+        quarantine_subtitle: "1,862 records isolated to preserve dataset fidelity.",
+        quarantine_badge: "12.66% quarantined",
+        col_q_trigger: "Quarantine Trigger",
+        col_q_count: "Count",
+        col_q_share: "Share",
+        col_q_res: "Resolution Path",
+        q_res_tradeable: "Log format formalization",
+        q_res_mana: "Dynamic aura reconstruction",
+        q_res_subopt: "Choose-one targeting matrix",
+        quarantine_note: "Zero Violations in Accepted Set: Isolating these decisions guarantees that 0 unproven mechanics pollute the SFT and ranker training distributions.",
+        splits_title: "Frozen Split Partitioning Matrix",
+        col_split: "Split",
+        col_games: "Games",
+        col_decisions: "Decisions",
+        col_pct: "Percentage",
+        col_role: "Role",
+        col_artifact: "ChatML Source Artifact",
+        split_role_train: "Weights & Head optimization",
+        split_role_val: "Model selection & early stop",
+        split_role_test: "Strict blind evaluation (unopened)",
+        split_role_holdout: "Chronological distribution drift",
+        pipeline_title: "End-to-End Imitation Learning Pipeline",
+        p1_title: "Card Database & TokenGraph Ingestion",
+        badge_completed: "Completed",
+        p1_desc: "Parsing 35,807 card entities from HDT XML dictionaries into an optimized SQLite cache with instant O(1) in-memory lookups (>22M/s). Integrated TokenGraph (8,661 cards, 6,069 relationships) to provide structural context.",
+        p2_title: "Replay Streaming & Option Oracle Contract",
+        p2_desc: "Stream-reading 1,041 .hdtreplay archives without disk extraction. GameStateTracker reconstructs boards, zones, and captures Blizzard DebugPrintOptions error=NONE and SendOption events to produce Schema v2.",
+        p3_title: "Tactical Coach & Lethal Burst Detector",
+        p3_desc: "Deterministic post-game evaluator (src/coach/analyzer.py) computing max burst lethal potential, mana efficiency, and tempo curves. Forms the verification baseline for detecting tactical blunders.",
+        p4_title: "Supervised Fine-Tuning (QLoRA ChatML)",
+        badge_blocked_cuda: "Blocked on CUDA",
+        p4_desc: "Autoregressive token generation trainer (src/llm/train_qlora.py) targeting Qwen-2.5-Coder-7B with 4-bit NF4 quantization. Currently held at gate pending isolated CUDA PyTorch environment.",
+        p5_title: "NLI Cross-Encoder / Jev Ranking Architecture",
+        badge_active: "Active",
+        p5_desc: "One-pass scoring of candidate decisions via ModernCE-large-nli (395M) and listwise linear projection. Bypasses autoregressive token generation latency (15ms vs 1200ms) with 0% candidate hallucination risk.",
+        breakdown_title: "ModernCE Supervised Head: Breakdown",
+        breakdown_subtitle: "Class accuracy comparison on 1,198 validation decisions.",
+        col_action: "Action Type",
+        col_samples: "Samples",
+        col_zero: "Zero-Shot",
+        col_linear: "Linear Head",
+        col_delta: "Delta",
+        status_blocker: "Blocker",
+        collapse_title: "Analysis: The Action Collapse Failure Mode",
+        collapse_desc: "In experiment tuning_tempered, class-weight power scaling (w^α) was tested across α ∈ {0.25, 0.50, 0.75} to resolve zero-accuracy on HERO_POWER.",
+        collapse_box: "Catastrophic Degradation: Boosting weights for rare classes severely penalized the dominant PLAY class, causing its accuracy to plummet from 26.06% down to 8.14%–15.70%. All weighted variants failed the non-inferiority gate.",
+        solution_title: "Architectural Solution: Factorized Ranker",
+        solution_desc: "Decoupling macro-action type gating from within-type candidate ranking prevents rare-class loss inflation from contaminating card-play representations.",
+        sabber_title: "Dual-Engine AI Stack: Assistant & SabberStone Simulator",
+        sabber_subtitle: "Autonomous integration with C# .NET Core engine at D:\\AI\\SabberStone.",
+        sabber_badge: "C# Core: Exit Code 0",
+        engine1_tag: "Perception & Decision Runtime",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "Rules Engine & Synthetic Generator",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "Post-Training Synergies (Negative Self-Distillation / DPO):",
+        dpo_desc: "Human replays provide expert positive trajectories but lack counterfactual exploration. SabberStone simulates alternative candidate actions to deterministically verify whether non-chosen options lead to defeat, loss of lethal, or illegal board states — providing rigorous preference pairs ([Prompt, Chosen, Rejected]) for DPO training without hallucinated feedback.",
+        telem_title: "ResourceGuard Hardware Profile (RTX 4060)",
+        telem_subtitle: "6,759 live telemetry watchdog samples during full 102,469 candidate feature extraction.",
+        telem_badge: "0 Faults / 0 OOM",
+        telem_peak_gpu: "Peak GPU VRAM Used",
+        telem_gpu_sub: "Under 4,096 MiB safety cap",
+        telem_min_vram: "Min Free GPU VRAM",
+        telem_vram_sub: "Guaranteed headroom > 4 GB",
+        telem_min_ram: "Min System RAM Available",
+        telem_ram_sub: "Healthy buffer > 8 GB",
+        telem_peak_temp: "Peak GPU Core Temp",
+        telem_temp_sub: "Well below 75 °C throttle",
+        repro_title: "CLI Reproduction Commands",
+        repro_subtitle: "One-line shell commands to reproduce all stages from repository root.",
+        repro_step1: "1. Run 73-test verification suite:",
+        repro_step2: "2. Index 35,807 cards and build TokenGraph cache:",
+        repro_step3: "3. Generate production next-action schema v2 dataset:",
+        repro_step4: "4. Build SabberStoneCore C# engine (Release):",
+        btn_copy: "Copy",
+        footer_title: "Hearthstone AI Assistant & SabberStone Ecosystem • Open Source Research Suite",
+        footer_verified: "Verified: 2026-09-18"
+      },
+      ru: {
+        header_observatory: "обсерватория",
+        header_tests: "73/73 тестов пройдено",
+        header_repo: "Репозиторий",
+        hero_badge_legend: "Датасет Легенды",
+        hero_badge_oracle: "Контракт Option Oracle",
+        hero_badge_stack: "Двухдвижковый симулятор",
+        hero_title: "Hearthstone AI Assistant — Открытая обсерватория обучения",
+        hero_desc: "Полная телеметрия, сплиты без утечек данных (Zero-Leakage), детерминированное имитационное обучение и валидация через C# движок симуляции SabberStone на базе верифицированных JSON-отчетов.",
+        kpi_decisions_title: "Принято решений",
+        kpi_decisions_sub: "87.34% покрытия (540 игр)",
+        kpi_top1_title: "ModernCE Top-1",
+        kpi_top1_sub: "+8.98 п.п. к случайному (N>1)",
+        kpi_splits_title: "Сплиты без утечек",
+        kpi_splits_sub: "390 train / 48 val / 48 test",
+        kpi_cards_title: "Справочник карт",
+        kpi_cards_sub: ">22M lookups/s в памяти",
+        kpi_quarantine_title: "Карантинный фильтр",
+        kpi_quarantine_sub: "1 725 механик Tradeable",
+        kpi_dual_title: "Двухдвижковый стек",
+        kpi_dual_sub: "Реплеи + SabberStone C#",
+        tab_benchmarks: "Бенчмарки моделей",
+        tab_dataset: "Датасет и сплиты",
+        tab_pipeline: "Пайплайн обучения",
+        tab_modernce: "ModernCE и Action Collapse",
+        tab_sabberstone: "Симулятор SabberStone",
+        tab_telemetry: "Аппаратный Guard",
+        tab_repro: "CLI Runbook",
+        benchmarks_title: "Бенчмарки выбора следующего действия (Next-Action)",
+        benchmarks_subtitle: "Оценка на замороженном валидационном сплите (1 198 решений / 10 638 пар кандидатов в 48 скрытых играх).",
+        benchmarks_badge: "Решений при N > 1: 1 066",
+        col_model: "Модель / Конфигурация",
+        col_paradigm: "Парадигма",
+        col_top1_all: "Top-1 (Все)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (Все)",
+        col_latency: "Задержка p50",
+        col_status: "Статус",
+        row_random_name: "Равномерный случайный выбор",
+        row_random_paradigm: "Стохастический",
+        status_baseline: "Бейзлайн",
+        row_first_name: "Эвристика первого кандидата",
+        row_first_paradigm: "Эвристика порядка",
+        status_subrandom: "Хуже случайного",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "Zero-shot NLI",
+        status_rejected_hp: "Отклонен (HP=0%)",
+        row_linear_name: "Supervised Linear Head над ModernCE",
+        badge_best: "Лучший",
+        row_linear_paradigm: "Замороженные 1024d + Listwise Head",
+        status_validated: "Валидирован",
+        row_weights_name: "Степенное взвешивание (α=0.25)",
+        row_weights_paradigm: "Взвешивание функции потерь",
+        status_action_collapse: "Action Collapse",
+        row_qwen_name: "Qwen-2.5-1.5B (Авторегрессионный SFT)",
+        row_qwen_paradigm: "Генеративный SFT",
+        status_blocked_cuda: "Блокирован (CUDA)",
+        tenet1_title: "1. Полная фактологическая точность",
+        tenet1_desc: "Каждая метрика парсится напрямую из SHA-256 проверенных отчетов. Ноль приукрашиваний: ошибки вроде HERO_POWER=0% и Action Collapse открыто зафиксированы.",
+        tenet2_title: "2. Протокол нулевой утечки данных",
+        tenet2_desc: "Все сплиты разбиты строго по ID матчей (540 уникальных игр). Перемешивание ходов внутри игры запрещено для исключения запоминания карт оппонента.",
+        tenet3_title: "3. Детерминированный Replay Oracle",
+        tenet3_desc: "Решения извлекаются из логов Blizzard (DebugPrintOptions error=NONE). Набор кандидатов полностью легален и детерминирован.",
+        dist_title: "Распределение принятых действий (Schema v2)",
+        dist_subtitle: "Всего решений: 12 840 из 549 победных реплеев.",
+        action_play: "PLAY (Разыгрывание карты)",
+        action_attack: "ATTACK (Атака существом/героем)",
+        action_end_turn: "END_TURN (Завершение хода)",
+        action_hero_power: "HERO_POWER (Сила героя)",
+        action_location: "LOCATION (Активация области)",
+        action_power: "POWER (Особая способность)",
+        quarantine_title: "Анализ причин изоляции в карантин",
+        quarantine_subtitle: "1 862 записи изолированы для защиты качества обучения.",
+        quarantine_badge: "12.66% в карантине",
+        col_q_trigger: "Причина изоляции",
+        col_q_count: "Количество",
+        col_q_share: "Доля",
+        col_q_res: "Путь решения",
+        q_res_tradeable: "Формализация формата в логе",
+        q_res_mana: "Реконструкция динамических аур",
+        q_res_subopt: "Матрица таргетинга Choose-One",
+        quarantine_note: "Ноль нарушений в принятом наборе: Изоляция этих ходов гарантирует, что 0 непроверенных механик загрязняют обучение.",
+        splits_title: "Матрица замороженных сплитов данных",
+        col_split: "Сплит",
+        col_games: "Игры",
+        col_decisions: "Решения",
+        col_pct: "Процент",
+        col_role: "Назначение",
+        col_artifact: "Исходный ChatML файл",
+        split_role_train: "Обучение весов и линейной головы",
+        split_role_val: "Выбор модели и ранний стоп",
+        split_role_test: "Слепое финальное тестирование",
+        split_role_holdout: "Проверка сдвига меты во времени",
+        pipeline_title: "Полный пайплайн имитационного обучения",
+        p1_title: "База карт и семантический TokenGraph",
+        badge_completed: "Завершено",
+        p1_desc: "Парсинг 35 807 карт из XML в SQLite с быстрым O(1) in-memory кэшем (>22 млн/с). Интеграция TokenGraph (8 661 карт, 6 069 связей) для контекста токенов.",
+        p2_title: "Потоковый парсер реплеев и Option Oracle",
+        p2_desc: "Чтение 1 041 архивов .hdtreplay без распаковки. GameStateTracker восстанавливает стол, зоны и фиксирует DebugPrintOptions и SendOption.",
+        p3_title: "Тактический тренер и Lethal Burst Detector",
+        p3_desc: "Детерминированный анализ матчей (src/coach/analyzer.py) с расчетом летального взрывного урона, темпа и поиском тактических ошибок.",
+        p4_title: "Supervised Fine-Tuning (QLoRA ChatML)",
+        badge_blocked_cuda: "В ожидании CUDA",
+        p4_desc: "Авторегрессионный тренер токенов (src/llm/train_qlora.py) для Qwen-2.5-Coder-7B (4-bit NF4). Ожидает развертывания изолированного CUDA PyTorch.",
+        p5_title: "NLI Cross-Encoder / Jev Ранжирование",
+        badge_active: "Активно",
+        p5_desc: "Прямой скоринг кандидатов за 1 проход через ModernCE-large-nli (395M) и linear head. Устраняет задержку генерации (15 мс против 1200 мс) без галлюцинаций.",
+        breakdown_title: "ModernCE Supervised Head: Детализация по типам",
+        breakdown_subtitle: "Сравнение точности на 1 198 валидационных решениях.",
+        col_action: "Тип действия",
+        col_samples: "Выборка",
+        col_zero: "Zero-Shot",
+        col_linear: "Linear Head",
+        col_delta: "Дельта",
+        status_blocker: "Блокер",
+        collapse_title: "Анализ: Феномен Action Collapse",
+        collapse_desc: "В эксперименте tuning_tempered степенное взвешивание классов (w^α) исследовалось при α ∈ {0.25, 0.50, 0.75} для поднятия точности силы героя.",
+        collapse_box: "Катастрофическая деградация: Попытка поднять вес редких классов привела к обвалу точности главного класса PLAY с 26.06% до 8.14%–15.70%. Варианты не прошли гейт.",
+        solution_title: "Архитектурное решение: Factorized Ranker",
+        solution_desc: "Разделение предсказания макро-типа действия и ранжирования карт внутри типа устраняет перекос без повторного GPU-извлечения признаков.",
+        sabber_title: "Двухдвижковый стек: AI Assistant + Симулятор SabberStone",
+        sabber_subtitle: "Интеграция с C# .NET Core симулятором правил в D:\\AI\\SabberStone.",
+        sabber_badge: "C# Core: Exit Code 0",
+        engine1_tag: "Движок восприятия и решений",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "Движок симуляции и правил",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "Синергия для Post-Training (NSD / DPO):",
+        dpo_desc: "Реплеи человека дают позитивный опыт, но не исследуют альтернативные ветки. SabberStone детерминированно симулирует невыбранные ходы, подтверждая поражение или упущенный летал для генерации чистых пар предпочтений DPO.",
+        telem_title: "Профиль безопасности ResourceGuard (RTX 4060)",
+        telem_subtitle: "6 759 измерений сторожевого таймера во время извлечения признаков 102 469 кандидатов.",
+        telem_badge: "0 ошибок / 0 OOM",
+        telem_peak_gpu: "Пик VRAM GPU",
+        telem_gpu_sub: "Лимит безопасности 4 096 MiB",
+        telem_min_vram: "Минимум свободной VRAM",
+        telem_vram_sub: "Гарантированный запас > 4 GB",
+        telem_min_ram: "Минимум свободной RAM",
+        telem_ram_sub: "Надежный буфер > 8 GB",
+        telem_peak_temp: "Пиковая температура GPU",
+        telem_temp_sub: "Безопасно (порог 75 °C)",
+        repro_title: "Команды воспроизведения в CLI",
+        repro_subtitle: "Однострочные команды для запуска из корня репозитория.",
+        repro_step1: "1. Запуск 73 тестов верификации:",
+        repro_step2: "2. Индексация 35 807 карт и сборка TokenGraph:",
+        repro_step3: "3. Генерация production Next-Action датасета:",
+        repro_step4: "4. Сборка C# ядра SabberStoneCore (Release):",
+        btn_copy: "Копировать",
+        footer_title: "Hearthstone AI Assistant & SabberStone Ecosystem • Open Source Исследовательский Стек",
+        footer_verified: "Проверено: 18.09.2026"
+      },
+      zh: {
+        header_observatory: "训练观测台",
+        header_tests: "73/73 项测试通过",
+        header_repo: "代码仓库",
+        hero_badge_legend: "传说段位复盘数据集",
+        hero_badge_oracle: "选项预言机契约",
+        hero_badge_stack: "双引擎模拟器架构",
+        hero_title: "炉石传说 AI 助手 — 开源训练与评估观测台",
+        hero_desc: "具备完整硬件监控、零数据泄露对局级划分、确定性行为克隆，并与 SabberStone C# 规则引擎交叉验证，全部基于真实 JSON 指标。",
+        kpi_decisions_title: "已采纳决策",
+        kpi_decisions_sub: "87.34% 覆盖率 (540 场对局)",
+        kpi_top1_title: "ModernCE 准确率 Top-1",
+        kpi_top1_sub: "相比随机基准 +8.98% (N>1)",
+        kpi_splits_title: "零泄露数据集划分",
+        kpi_splits_sub: "390 训练 / 48 验证 / 48 测试",
+        kpi_cards_title: "卡牌数据库",
+        kpi_cards_sub: ">2200万次/秒 内存检索",
+        kpi_quarantine_title: "隔离门禁决策",
+        kpi_quarantine_sub: "1,725 可交易机制待证明",
+        kpi_dual_title: "双引擎架构",
+        kpi_dual_sub: "对局日志 + SabberStone C#",
+        tab_benchmarks: "模型基准评测",
+        tab_dataset: "数据集与切分",
+        tab_pipeline: "训练流水线",
+        tab_modernce: "ModernCE 与动作坍塌",
+        tab_sabberstone: "SabberStone 对局模拟",
+        tab_telemetry: "硬件监控守护",
+        tab_repro: "命令行复现手册",
+        benchmarks_title: "下一步动作决策排序评测",
+        benchmarks_subtitle: "基于冻结验证集评测（48 场独立对局中的 1,198 次决策 / 10,638 对候选动作）。",
+        benchmarks_badge: "多候选决策数 (N > 1): 1,066",
+        col_model: "模型 / 配置",
+        col_paradigm: "推理范式",
+        col_top1_all: "Top-1 (全集)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (全集)",
+        col_latency: "中位延迟 p50",
+        col_status: "状态",
+        row_random_name: "均匀随机基准",
+        row_random_paradigm: "随机选择",
+        status_baseline: "基准",
+        row_first_name: "首个候选启发式",
+        row_first_paradigm: "顺序启发",
+        status_subrandom: "低于随机",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "零样本 NLI",
+        status_rejected_hp: "未通过 (英雄技能=0%)",
+        row_linear_name: "ModernCE 监督线性头 (Linear Head)",
+        badge_best: "最优",
+        row_linear_paradigm: "冻结 1024d 向量 + 排序头",
+        status_validated: "已验证",
+        row_weights_name: "类别温和加权 (α=0.25)",
+        row_weights_paradigm: "损失函数加权",
+        status_action_collapse: "动作坍塌",
+        row_qwen_name: "Qwen-2.5-1.5B (自回归 SFT)",
+        row_qwen_paradigm: "生成式 SFT",
+        status_blocked_cuda: "等待 CUDA 环境",
+        tenet1_title: "1. 真实数据驱动原则",
+        tenet1_desc: "所有指标直接从 SHA-256 验证报告中解析。绝无乐观估算，公开披露英雄技能识别为 0 和动作坍塌等失败模式。",
+        tenet2_title: "2. 零数据泄露协议",
+        tenet2_desc: "所有子集严格按 540 个独立对局 ID 划分。严禁同一场对局中的不同回合跨集混淆，杜绝记牌作弊。",
+        tenet3_title: "3. 确定性重放预言机",
+        tenet3_desc: "决策严格源自暴雪引擎底层日志 (DebugPrintOptions error=NONE)。候选动作集 100% 合规确定。",
+        dist_title: "采纳动作类型分布 (Schema v2)",
+        dist_subtitle: "总计 12,840 次决策，提取自 549 场天梯传说胜局。",
+        action_play: "打出卡牌 (PLAY)",
+        action_attack: "发起攻击 (ATTACK)",
+        action_end_turn: "结束回合 (END_TURN)",
+        action_hero_power: "使用英雄技能 (HERO_POWER)",
+        action_location: "地标激活 (LOCATION)",
+        action_power: "特殊泰坦技能 (POWER)",
+        quarantine_title: "隔离门禁原因分析",
+        quarantine_subtitle: "隔离 1,862 条存疑记录，确保训练集绝对纯净。",
+        quarantine_badge: "12.66% 处于隔离",
+        col_q_trigger: "隔离触发条件",
+        col_q_count: "数量",
+        col_q_share: "占比",
+        col_q_res: "解决路径",
+        q_res_tradeable: "可交易日志格式形式化",
+        q_res_mana: "动态法力光环状态重建",
+        q_res_subopt: "抉择法术目标交叉表构建",
+        quarantine_note: "已采纳数据中违规数为 0：通过严格隔离机制，彻底防止未经验证的复杂机制污染模型训练分布。",
+        splits_title: "冻结切分分配矩阵",
+        col_split: "数据切分",
+        col_games: "对局数",
+        col_decisions: "决策数",
+        col_pct: "百分比",
+        col_role: "用途",
+        col_artifact: "ChatML 格式源文件",
+        split_role_train: "模型权重与分类头训练",
+        split_role_val: "超参数调优与早停",
+        split_role_test: "严格盲测评估",
+        split_role_holdout: "时间序元环境漂移测试",
+        pipeline_title: "端到端模仿学习训练全流程",
+        p1_title: "卡牌知识库与 TokenGraph 实体图谱",
+        badge_completed: "已完成",
+        p1_desc: "从 HDT XML 解析 35,807 张卡牌至 SQLite，提供纳秒级 O(1) 内存检索。集成 TokenGraph (8,661 张卡牌，6,069 条衍生关系)。",
+        p2_title: "复盘流式解析与选项预言机契约",
+        p2_desc: "零解压流式解析 1,041 个 .hdtreplay 文件。精准重建手牌和战场区域，捕获合规候选集生成 Schema v2。",
+        p3_title: "战术复盘教练与斩杀爆发检测器",
+        p3_desc: "基于规则的确定性复盘系统，实时计算单回合最大爆发斩杀伤害、法力利用效率并对比玩家实际出牌。",
+        p4_title: "监督微调流水线 (QLoRA ChatML)",
+        badge_blocked_cuda: "等待 CUDA",
+        p4_desc: "针对 Qwen-2.5-Coder-7B 的 4-bit NF4 量化训练脚本。目前在等待独立 GPU 环境部署后正式启动。",
+        p5_title: "自然语言推理 (NLI) 动作排序架构",
+        badge_active: "进行中",
+        p5_desc: "利用 ModernCE-large-nli (395M) 进行单次前向排序。相比自回归生成将延迟降低至 15ms，彻底杜绝无效选项幻觉。",
+        breakdown_title: "ModernCE 分类头各类动作详细准确率",
+        breakdown_subtitle: "1,198 个验证集决策的细分类对比。",
+        col_action: "动作类型",
+        col_samples: "样本量",
+        col_zero: "零样本",
+        col_linear: "线性分类头",
+        col_delta: "增益",
+        status_blocker: "阻碍点",
+        collapse_title: "分析：动作坍塌 (Action Collapse) 现象",
+        collapse_desc: "在 tuning_tempered 实验中，测试了对少数类进行幂加权以解决英雄技能准确率为 0 的问题。",
+        collapse_box: "灾难性性能下降：过度加权少数类导致主要动作 PLAY 的准确率从 26.06% 暴跌至 8.14%–15.70%，所有加权方案均未通过评估门禁。",
+        solution_title: "架构解决方案：因子化动作类型排序器",
+        solution_desc: "将宏观动作类型门控与同类型候选排序解耦，避免少数类损失权重污染整体卡牌表示。",
+        sabber_title: "双引擎架构：AI 助手与 SabberStone 仿真引擎",
+        sabber_subtitle: "与位于 D:\\AI\\SabberStone 的 C# .NET Core 规则模拟器深度联动。",
+        sabber_badge: "C# 核心构建成功",
+        engine1_tag: "感知与决策推理引擎",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "游戏规则与对局生成引擎",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "后期对齐偏好优化 (NSD / DPO) 联动：",
+        dpo_desc: "人类玩家复盘仅能提供正向轨迹，无法探索反事实分支。SabberStone 在毫秒级内自动推演未选择候选动作是否会导致失利或错失斩杀，为 DPO 训练提供无幻觉的确定性正负偏好对。",
+        telem_title: "ResourceGuard 硬件守护档案 (RTX 4060)",
+        telem_subtitle: "特征提取期间连续 6,759 次实时看门狗采样监控。",
+        telem_badge: "0 故障 / 0 显存溢出",
+        telem_peak_gpu: "显存使用峰值",
+        telem_gpu_sub: "低于 4,096 MiB 安全上限",
+        telem_min_vram: "可用显存最低值",
+        telem_vram_sub: "保证 >4 GB 安全冗余",
+        telem_min_ram: "可用系统内存最低值",
+        telem_ram_sub: "健康缓冲区 >8 GB",
+        telem_peak_temp: "GPU 核心最高温度",
+        telem_temp_sub: "远低于 75 °C 降频温度",
+        repro_title: "命令行复现命令",
+        repro_subtitle: "从项目根目录执行单行命令复现所有步骤。",
+        repro_step1: "1. 运行 73 项完整验证测试：",
+        repro_step2: "2. 构建 35,807 张卡牌数据库与 TokenGraph：",
+        repro_step3: "3. 生成正式版 Schema v2 决策数据集：",
+        repro_step4: "4. 构建 SabberStone C# 规则引擎 (Release)：",
+        btn_copy: "复制",
+        footer_title: "Hearthstone AI Assistant 与 SabberStone 生态 • 开源科研套件",
+        footer_verified: "验证时间: 2026-09-18"
+      },
+      ko: {
+        header_observatory: "학습 관측소",
+        header_tests: "73/73 테스트 통과",
+        header_repo: "저장소",
+        hero_badge_legend: "전설 등급 리플레이 데이터셋",
+        hero_badge_oracle: "옵션 오라클 계약",
+        hero_badge_stack: "듀얼 엔진 시뮬레이터 스택",
+        hero_title: "하스스톤 AI 어시스턴트 — 오픈소스 학습 관측소",
+        hero_desc: "실시간 하드웨어 텔레메트리, 데이터 누수 없는 대국 단위 분할, 확정적 모방 학습 및 SabberStone C# 규칙 엔진 교차 검증을 제공합니다.",
+        kpi_decisions_title: "승인된 결정 수",
+        kpi_decisions_sub: "87.34% 커버리지 (540 판)",
+        kpi_top1_title: "ModernCE Top-1 정확도",
+        kpi_top1_sub: "무작위 기준 대비 +8.98%p (N>1)",
+        kpi_splits_title: "무누수 데이터 분할",
+        kpi_splits_sub: "390 학습 / 48 검증 / 48 평가",
+        kpi_cards_title: "카드 데이터베이스",
+        kpi_cards_sub: "초당 2,200만 건 메모리 검색",
+        kpi_quarantine_title: "격리 게이트 데이터",
+        kpi_quarantine_sub: "교환 가능 메커니즘 1,725 건",
+        kpi_dual_title: "듀얼 엔진 아키텍처",
+        kpi_dual_sub: "리플레이 + SabberStone C#",
+        tab_benchmarks: "모델 벤치마크",
+        tab_dataset: "데이터셋 및 분할",
+        tab_pipeline: "학습 파이프라인",
+        tab_modernce: "ModernCE 및 액션 붕괴",
+        tab_sabberstone: "SabberStone 시뮬레이션",
+        tab_telemetry: "하드웨어 가드",
+        tab_repro: "CLI 실행 매뉴얼",
+        benchmarks_title: "다음 액션 선택 벤치마크",
+        benchmarks_subtitle: "동결된 검증 데이터셋(48개 비공개 대국의 1,198개 결정 / 10,638개 후보 쌍)에서 평가되었습니다.",
+        benchmarks_badge: "다중 후보 결정 (N > 1): 1,066",
+        col_model: "모델 / 설정",
+        col_paradigm: "추론 패러다임",
+        col_top1_all: "Top-1 (전체)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (전체)",
+        col_latency: "중앙 지연시간 p50",
+        col_status: "상태",
+        row_random_name: "균등 무작위 기준",
+        row_random_paradigm: "확률적 선택",
+        status_baseline: "기준치",
+        row_first_name: "첫 번째 후보 휴리스틱",
+        row_first_paradigm: "순서 기반",
+        status_subrandom: "기준 미달",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "Zero-shot NLI",
+        status_rejected_hp: "미달 (영능=0%)",
+        row_linear_name: "ModernCE 지도 선형 헤드 (Linear Head)",
+        badge_best: "최고",
+        row_linear_paradigm: "동결 1024d 임베딩 + 순위 헤드",
+        status_validated: "검증 완료",
+        row_weights_name: "클래스 가중치 조정 (α=0.25)",
+        row_weights_paradigm: "손실 함수 가중치",
+        status_action_collapse: "액션 붕괴",
+        row_qwen_name: "Qwen-2.5-1.5B (자기회귀 SFT)",
+        row_qwen_paradigm: "생성형 SFT",
+        status_blocked_cuda: "CUDA 환경 대기",
+        tenet1_title: "1. 철저한 사실 기반 보고",
+        tenet1_desc: "모든 지표는 SHA-256 검증 보고서에서 직접 파싱됩니다. 낙관적 가정을 배제하고 실패 원인도 투명하게 공개합니다.",
+        tenet2_title: "2. 데이터 누수 제로 프로토콜",
+        tenet2_desc: "모든 데이터셋은 540개의 고유 대국 ID 단위로 엄격히 분할됩니다. 대국 내 턴 셔플을 금지하여 암기를 방지합니다.",
+        tenet3_title: "3. 리플레이 옵션 오라클",
+        tenet3_desc: "결정은 블리자드 엔진 로그(DebugPrintOptions error=NONE)에서 추출됩니다. 후보 세트는 100% 합법적이고 확정적입니다.",
+        dist_title: "승인된 액션 유형 분포 (Schema v2)",
+        dist_subtitle: "549개 전설 등급 승리 리플레이에서 추출된 총 12,840개 결정.",
+        action_play: "카드 내기 (PLAY)",
+        action_attack: "공격 (ATTACK)",
+        action_end_turn: "턴 종료 (END_TURN)",
+        action_hero_power: "영웅 능력 (HERO_POWER)",
+        action_location: "장소 능력 사용 (LOCATION)",
+        action_power: "특수 타이탄 능력 (POWER)",
+        quarantine_title: "격리 게이트 원인 분석",
+        quarantine_subtitle: "학습 데이터 품질 보전을 위해 1,862개 데이터 격리.",
+        quarantine_badge: "12.66% 격리됨",
+        col_q_trigger: "격리 조건",
+        col_q_count: "건수",
+        col_q_share: "비율",
+        col_q_res: "해결 방안",
+        q_res_tradeable: "교환 가능 로그 포맷 정규화",
+        q_res_mana: "동적 오라 마나 상태 복원",
+        q_res_subopt: "선택 주문 타겟팅 교차 분석",
+        quarantine_note: "승인 세트 내 위반 0건: 미검증 메커니즘을 엄격히 격리하여 모델의 학습 분포 오염을 원천 차단했습니다.",
+        splits_title: "동결 데이터 분할 매트릭스",
+        col_split: "분할",
+        col_games: "대국 수",
+        col_decisions: "결정 수",
+        col_pct: "비율",
+        col_role: "용도",
+        col_artifact: "ChatML 원본 파일",
+        split_role_train: "가중치 및 분류 헤드 학습",
+        split_role_val: "모델 선택 및 조기 종료",
+        split_role_test: "엄격한 블라인드 최종 평가",
+        split_role_holdout: "시간 흐름에 따른 메타 변화 평가",
+        pipeline_title: "엔드투엔드 모방 학습 전체 파이프라인",
+        p1_title: "카드 DB 및 TokenGraph 구축",
+        badge_completed: "완료됨",
+        p1_desc: "HDT XML에서 35,807개 카드를 SQLite로 파싱하여 초당 2,200만 건의 O(1) 메모리 검색 지원. TokenGraph (8,661개 카드, 6,069개 관계) 통합.",
+        p2_title: "리플레이 스트리밍 및 옵션 오라클",
+        p2_desc: "1,041개 압축 리플레이를 무압축 스트리밍 방식으로 읽어 들이며 필드/손패를 복원하고 합법 후보군을 생성합니다.",
+        p3_title: "전술 코치 및 킬각 폭발 데미지 탐지기",
+        p3_desc: "턴당 최대 폭발 킬각 데미지와 템포 손실을 계산하여 플레이어의 수와 비교하는 전술 평가 모듈.",
+        p4_title: "지도 미세조정 (QLoRA ChatML)",
+        badge_blocked_cuda: "CUDA 대기",
+        p4_desc: "Qwen-2.5-Coder-7B 대상 4-bit NF4 양자화 학습 스크립트. GPU 환경 세팅 후 작동 대기 중.",
+        p5_title: "NLI Cross-Encoder / 액션 순위화",
+        badge_active: "진행 중",
+        p5_desc: "ModernCE-large-nli (395M)를 이용해 1회 순방향 패스로 후보를 순위화합니다. 15ms 미만의 빠른 속도로 환각을 제거합니다.",
+        breakdown_title: "ModernCE 세부 액션 정확도",
+        breakdown_subtitle: "1,198개 검증 결정에서의 세부 유형별 정확도 비교.",
+        col_action: "액션 유형",
+        col_samples: "샘플 수",
+        col_zero: "Zero-Shot",
+        col_linear: "Linear Head",
+        col_delta: "변화량",
+        status_blocker: "개선 필요",
+        collapse_title: "분석: 액션 붕괴 (Action Collapse) 현상",
+        collapse_desc: "tuning_tempered 실험에서 영웅 능력의 정확도를 높이기 위해 희귀 클래스 가중치를 테스트했습니다.",
+        collapse_box: "치명적 성능 저하: 소수 클래스 가중치를 높이자 주 액션인 PLAY 정확도가 26.06%에서 8.14%~15.70%로 급락하여 게이트를 통과하지 못했습니다.",
+        solution_title: "아키텍처 대안: 계층적 랭커 (Factorized Ranker)",
+        solution_desc: "대분류 액션 유형 결정과 세부 카드 선택을 분리하여 가중치 불균형에 의한 특징 왜곡을 방지합니다.",
+        sabber_title: "듀얼 엔진 스택: AI 어시스턴트 & SabberStone",
+        sabber_subtitle: "D:\\AI\\SabberStone의 C# .NET Core 룰 시뮬레이터와의 자율 연동.",
+        sabber_badge: "C# 코어 빌드 성공",
+        engine1_tag: "인식 및 전술 추론 엔진",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "규칙 검증 및 대국 생성 엔진",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "사후 정렬 최적화 (NSD / DPO) 시너지:",
+        dpo_desc: "인간 리플레이는 긍정 궤적만 제공하지만, SabberStone은 대안적 후보 액션이 패배나 킬각 상실로 이어지는지 확정적으로 시뮬레이션하여 환각 없는 순수 DPO 선호 쌍을 생성합니다.",
+        telem_title: "ResourceGuard 하드웨어 프로파일 (RTX 4060)",
+        telem_subtitle: "102,469개 후보 특징 추출 중 6,759회의 실시간 감시 센서 측정치.",
+        telem_badge: "0 장애 / 0 OOM",
+        telem_peak_gpu: "최대 GPU VRAM 사용량",
+        telem_gpu_sub: "안전 한도 4,096 MiB 이하 유지",
+        telem_min_vram: "최소 잔여 GPU VRAM",
+        telem_vram_sub: ">4 GB 안전 마진 확보",
+        telem_min_ram: "최소 가용 시스템 메모리",
+        telem_ram_sub: ">8 GB 여유 메모리 버퍼",
+        telem_peak_temp: "최고 GPU 코어 온도",
+        telem_temp_sub: "75 °C 스로틀링 기준 이하",
+        repro_title: "CLI 실행 명령어",
+        repro_subtitle: "프로젝트 루트에서 실행할 수 있는 원라인 명령어 모음.",
+        repro_step1: "1. 73개 검증 테스트 실행:",
+        repro_step2: "2. 35,807개 카드 DB 및 TokenGraph 인덱싱:",
+        repro_step3: "3. 프로덕션 Schema v2 데이터셋 생성:",
+        repro_step4: "4. SabberStone C# 엔진 빌드 (Release):",
+        btn_copy: "복사",
+        footer_title: "Hearthstone AI Assistant & SabberStone 생태계 • 오픈소스 리서치 스위트",
+        footer_verified: "검증 일시: 2026-09-18"
+      },
+      ja: {
+        header_observatory: "観測所",
+        header_tests: "73/73 テスト合格",
+        header_repo: "リポジトリ",
+        hero_badge_legend: "レジェンド帯リプレイデータセット",
+        hero_badge_oracle: "オプションオラクル契約",
+        hero_badge_stack: "デュアルエンジンシミュレータ",
+        hero_title: "ハースストーン AI アシスタント — オープン学習観測所",
+        hero_desc: "完全なハードウェアテレメトリ、リークのない対局単位分割、確定模倣学習、SabberStone C# ルールエンジンとのクロス検証を完全公開。",
+        kpi_decisions_title: "採択された決定数",
+        kpi_decisions_sub: "87.34% カバー率 (540 試合)",
+        kpi_top1_title: "ModernCE Top-1 精度",
+        kpi_top1_sub: "ランダム基準比 +8.98% (N>1)",
+        kpi_splits_title: "リークなしデータ分割",
+        kpi_splits_sub: "390 訓練 / 48 検証 / 48 テスト",
+        kpi_cards_title: "カードデータベース",
+        kpi_cards_sub: "毎秒2,200万回以上のインメモリ検索",
+        kpi_quarantine_title: "隔離ゲートデータ",
+        kpi_quarantine_sub: "交換可能メカニズム 1,725 件",
+        kpi_dual_title: "デュアルエンジン構成",
+        kpi_dual_sub: "リプレイ + SabberStone C#",
+        tab_benchmarks: "モデルベンチマーク",
+        tab_dataset: "データセットと分割",
+        tab_pipeline: "学習パイプライン",
+        tab_modernce: "ModernCE & アクション崩壊",
+        tab_sabberstone: "SabberStone シミュレーション",
+        tab_telemetry: "ハードウェア保護",
+        tab_repro: "CLI 実行手順書",
+        benchmarks_title: "次のアクション選択ベンチマーク",
+        benchmarks_subtitle: "凍結検証セット（48試合の1,198決定 / 10,638候補ペア）での評価。",
+        benchmarks_badge: "複数候補決定 (N > 1): 1,066",
+        col_model: "モデル / 構成",
+        col_paradigm: "推論パラダイム",
+        col_top1_all: "Top-1 (全体)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (全体)",
+        col_latency: "中央値レイテンシ p50",
+        col_status: "ステータス",
+        row_random_name: "一様ランダム基準",
+        row_random_paradigm: "確率的選択",
+        status_baseline: "ベースライン",
+        row_first_name: "第1候補ヒューリスティック",
+        row_first_paradigm: "順序ヒューリスティック",
+        status_subrandom: "基準未達",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "Zero-shot NLI",
+        status_rejected_hp: "不採用 (ヒロパ=0%)",
+        row_linear_name: "ModernCE 教師あり Linear Head",
+        badge_best: "最高性能",
+        row_linear_paradigm: "固定 1024d 埋め込み + 順位ヘッド",
+        status_validated: "検証済み",
+        row_weights_name: "クラス重み調整 (α=0.25)",
+        row_weights_paradigm: "損失関数重み付け",
+        status_action_collapse: "アクション崩壊",
+        row_qwen_name: "Qwen-2.5-1.5B (自己回帰 SFT)",
+        row_qwen_paradigm: "生成型 SFT",
+        status_blocked_cuda: "CUDA 環境待ち",
+        tenet1_title: "1. 徹底した事実準拠原則",
+        tenet1_desc: "全指標は SHA-256 検証レポートから直接取得。楽観的推測を排除し、ヒーローパワー精度 0 やアクション崩壊などの失敗要因も透明に公開。",
+        tenet2_title: "2. データリーク防止プロトコル",
+        tenet2_desc: "全データセットは 540 件の固有試合 ID 単位で厳格に分割。対局内のターン混入を禁止し、暗記による不正評価を防止。",
+        tenet3_title: "3. リプレイオプションオラクル",
+        tenet3_desc: "決定は Blizzard エンジンログ (DebugPrintOptions error=NONE) から抽出。候補アクションは 100% 合法かつ確定的。",
+        dist_title: "採択アクション種別の分布 (Schema v2)",
+        dist_subtitle: "549 試合のレジェンド勝利リプレイから抽出された計 12,840 決定。",
+        action_play: "カード使用 (PLAY)",
+        action_attack: "攻撃 (ATTACK)",
+        action_end_turn: "ターン終了 (END_TURN)",
+        action_hero_power: "ヒーローパワー (HERO_POWER)",
+        action_location: "拠点効果 (LOCATION)",
+        action_power: "特殊能力 (POWER)",
+        quarantine_title: "隔離ゲート原因分析",
+        quarantine_subtitle: "学習品質維持のため 1,862 件を隔離。",
+        quarantine_badge: "12.66% 隔離中",
+        col_q_trigger: "隔離条件",
+        col_q_count: "件数",
+        col_q_share: "割合",
+        col_q_res: "解決策",
+        q_res_tradeable: "交換可能ログ形式の形式化",
+        q_res_mana: "動的マナオーラ状態の再構築",
+        q_res_subopt: "選択呪文のターゲット交差表",
+        quarantine_note: "採用セット内の違反ゼロ: 未検証のメカニクスを隔離し、学習分布の汚染を防止。",
+        splits_title: "凍結データ分割マトリクス",
+        col_split: "分割",
+        col_games: "試合数",
+        col_decisions: "決定数",
+        col_pct: "割合",
+        col_role: "用途",
+        col_artifact: "ChatML ソースファイル",
+        split_role_train: "重みおよび分類ヘッド学習",
+        split_role_val: "モデル選定および早期終了",
+        split_role_test: "厳格ブラインド最終評価",
+        split_role_holdout: "時間軸メタ環境ドリフト評価",
+        pipeline_title: "エンドツーエンド模倣学習パイプライン",
+        p1_title: "カード DB および TokenGraph 構築",
+        badge_completed: "完了",
+        p1_desc: "HDT XML から 35,807 枚のカードを SQLite に格納し、秒間 2,200 万回以上の O(1) 検索を実現。TokenGraph (8,661 枚、6,069 関係) を統合。",
+        p2_title: "リプレインストリーミングとオプションオラクル",
+        p2_desc: "1,041 件のリプレイを無解凍ストリーミング処理。盤面と手札を復元し、合法的候補アクションを抽出して Schema v2 を生成。",
+        p3_title: "戦術コーチ & リーサルバースト検出器",
+        p3_desc: "ターン毎の最大バーストダメージやテンポ損失を算出し、プレイヤーの選択と比較する確定的戦術評価モジュール。",
+        p4_title: "教師ありファインチューニング (QLoRA ChatML)",
+        badge_blocked_cuda: "CUDA 待機",
+        p4_desc: "Qwen-2.5-Coder-7B 向けの 4-bit NF4 量子化学習スクリプト。GPU 環境整備後に稼働予定。",
+        p5_title: "NLI Cross-Encoder / アクション順位付け",
+        badge_active: "稼働中",
+        p5_desc: "ModernCE-large-nli (395M) による 1 パス候補スコアリング。生成遅延を 15ms に短縮し、選択肢の幻覚を排除。",
+        breakdown_title: "ModernCE 詳細アクション別精度",
+        breakdown_subtitle: "1,198 件の検証決定におけるクラス別精度比較。",
+        col_action: "アクション種別",
+        col_samples: "サンプル数",
+        col_zero: "Zero-Shot",
+        col_linear: "Linear Head",
+        col_delta: "変化量",
+        status_blocker: "改善必須",
+        collapse_title: "分析: アクション崩壊 (Action Collapse) 現象",
+        collapse_desc: "tuning_tempered 実験にて、ヒーローパワーの精度を改善するため稀少クラス加重をテスト。",
+        collapse_box: "致命的性能低下: 少数クラスの重みを引き上げた結果、主要アクション PLAY の精度が 26.06% から 8.14%〜15.70% に急落し、評価基準を満たせず。",
+        solution_title: "アーキテクチャ解決策: 階層型ランカー (Factorized Ranker)",
+        solution_desc: "大分類のアクション種別決定と詳細カード選択を分離し、重みの偏りによる特徴空間の歪みを防止。",
+        sabber_title: "デュアルエンジン構成: AI アシスタント & SabberStone",
+        sabber_subtitle: "D:\\AI\\SabberStone の C# .NET Core ルールシミュレータとの連携。",
+        sabber_badge: "C# コアビルド成功",
+        engine1_tag: "認識・推論エンジン",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "ルールシミュレーションエンジン",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "事後アライメント最適化 (NSD / DPO) シナジー:",
+        dpo_desc: "人間のリプレイは正例のみを提供しますが、SabberStone は不採用アクションが敗北やリーサル喪失に繋がるかを確定的にシミュレートし、幻覚のない DPO 嗜好ペア ([Prompt, Chosen, Rejected]) を生成します。",
+        telem_title: "ResourceGuard ハードウェアプロファイル (RTX 4060)",
+        telem_subtitle: "102,469 候補の特徴量抽出における 6,759 回のリアルタイム監視サンプル。",
+        telem_badge: "障害 0 件 / OOM 0 件",
+        telem_peak_gpu: "最大 GPU VRAM 使用量",
+        telem_gpu_sub: "安全上限 4,096 MiB 以内",
+        telem_min_vram: "最小空き GPU VRAM",
+        telem_vram_sub: ">4 GB の安全マージンを維持",
+        telem_min_ram: "最小利用可能メモリ",
+        telem_ram_sub: ">8 GB のメモリバッファ",
+        telem_peak_temp: "最大 GPU コア温度",
+        telem_temp_sub: "75 °C 基準値より大幅に低温",
+        repro_title: "CLI 再現用コマンド",
+        repro_subtitle: "リポジトリのルートから実行できるワンライナー一覧。",
+        repro_step1: "1. 73 件の検証テスト実行:",
+        repro_step2: "2. 35,807 枚カード DB と TokenGraph 構築:",
+        repro_step3: "3. 本番 Schema v2 決定データセット生成:",
+        repro_step4: "4. SabberStone C# エンジンビルド (Release):",
+        btn_copy: "コピー",
+        footer_title: "Hearthstone AI Assistant & SabberStone エコシステム • オープンソース研究スイート",
+        footer_verified: "検証日時: 2026-09-18"
+      },
+      de: {
+        header_observatory: "Observatorium",
+        header_tests: "73/73 Tests bestanden",
+        header_repo: "Repository",
+        hero_badge_legend: "Legenden-Replay-Datensatz",
+        hero_badge_oracle: "Option-Oracle-Vertrag",
+        hero_badge_stack: "Dual-Engine-Simulator-Stack",
+        hero_title: "Hearthstone AI Assistant — Open-Source-Trainings-Observatorium",
+        hero_desc: "Vollständige Hardware-Telemetrie, leckagefreie Spiel-Splits, deterministisches Imitationslernen und Cross-Validierung mit der SabberStone C#-Regel-Engine.",
+        kpi_decisions_title: "Akzeptierte Entscheidungen",
+        kpi_decisions_sub: "87.34% Abdeckung (540 Spiele)",
+        kpi_top1_title: "ModernCE Top-1 Genauigkeit",
+        kpi_top1_sub: "+8.98% ggü. Zufall (N>1)",
+        kpi_splits_title: "Leckagefreie Datensplits",
+        kpi_splits_sub: "390 Train / 48 Val / 48 Test",
+        kpi_cards_title: "Kartendatenbank",
+        kpi_cards_sub: ">22 Mio. Lookups/s im Speicher",
+        kpi_quarantine_title: "Quarantäne-Gate",
+        kpi_quarantine_sub: "1.725 austauschbare Mechaniken",
+        kpi_dual_title: "Dual-Engine-Stack",
+        kpi_dual_sub: "Replays + SabberStone C#",
+        tab_benchmarks: "Modell-Benchmarks",
+        tab_dataset: "Datensatz & Splits",
+        tab_pipeline: "Trainingspipeline",
+        tab_modernce: "ModernCE & Action Collapse",
+        tab_sabberstone: "SabberStone-Simulation",
+        tab_telemetry: "Hardware-Schutz",
+        tab_repro: "CLI-Ausführungshandbuch",
+        benchmarks_title: "Next-Action-Auswahl-Benchmarks",
+        benchmarks_subtitle: "Auswertung auf dem eingefrorenen Validierungssplit (1.198 Entscheidungen / 10.638 Kandidatenpaare in 48 Blindspielen).",
+        benchmarks_badge: "Entscheidungen mit N > 1: 1.066",
+        col_model: "Modell / Konfiguration",
+        col_paradigm: "Inferenzparadigma",
+        col_top1_all: "Top-1 (Gesamt)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (Gesamt)",
+        col_latency: "Median-Latenz p50",
+        col_status: "Status",
+        row_random_name: "Gleichmäßige Zufallsauswahl",
+        row_random_paradigm: "Stochastische Auswahl",
+        status_baseline: "Basiswert",
+        row_first_name: "Erster-Kandidat-Heuristik",
+        row_first_paradigm: "Reihenfolge-Heuristik",
+        status_subrandom: "Unter Basiswert",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "Zero-Shot NLI",
+        status_rejected_hp: "Abgelehnt (Heldenkraft=0%)",
+        row_linear_name: "ModernCE Supervised Linear Head",
+        badge_best: "Bester Wert",
+        row_linear_paradigm: "Eingefrorenes 1024d + Ranking-Head",
+        status_validated: "Validiert",
+        row_weights_name: "Klassengewichtung (α=0.25)",
+        row_weights_paradigm: "Verlustfunktions-Gewichtung",
+        status_action_collapse: "Action Collapse",
+        row_qwen_name: "Qwen-2.5-1.5B (Autoregressives SFT)",
+        row_qwen_paradigm: "Generatives SFT",
+        status_blocked_cuda: "Wartet auf CUDA",
+        tenet1_title: "1. Strenge Faktenbasierung",
+        tenet1_desc: "Alle Metriken stammen direkt aus SHA-256 verifizierten Berichten. Keine Beschönigungen: Fehlermodi wie Heldenkraft=0% und Action Collapse sind transparent dokumentiert.",
+        tenet2_title: "2. Zero-Data-Leakage-Protokoll",
+        tenet2_desc: "Alle Datensätze sind strikt nach 540 eindeutigen Spiel-IDs aufgeteilt. Das Mischen von Zügen innerhalb eines Spiels ist verboten, um Auswendiglernen zu verhindern.",
+        tenet3_title: "3. Replay Option Oracle",
+        tenet3_desc: "Entscheidungen stammen direkt aus Blizzard-Engine-Logs (DebugPrintOptions error=NONE). Die Kandidatenmenge ist zu 100% legal und deterministisch.",
+        dist_title: "Verteilung akzeptierter Aktionsarten (Schema v2)",
+        dist_subtitle: "Insgesamt 12.840 Entscheidungen aus 549 Legenden-Siegreplays.",
+        action_play: "Karte spielen (PLAY)",
+        action_attack: "Angriff durchführen (ATTACK)",
+        action_end_turn: "Zug beenden (END_TURN)",
+        action_hero_power: "Heldenfähigkeit nutzen (HERO_POWER)",
+        action_location: "Schauplatz aktivieren (LOCATION)",
+        action_power: "Spezialfähigkeit (POWER)",
+        quarantine_title: "Analyse der Quarantäne-Ursachen",
+        quarantine_subtitle: "1.862 Datensätze isoliert, um Trainingsqualität zu schützen.",
+        quarantine_badge: "12.66% in Quarantäne",
+        col_q_trigger: "Quarantäne-Bedingung",
+        col_q_count: "Anzahl",
+        col_q_share: "Anteil",
+        col_q_res: "Lösungsweg",
+        q_res_tradeable: "Formalisierung des Austauschbar-Formats",
+        q_res_mana: "Rekonstruktion dynamischer Auren",
+        q_res_subopt: "Auswahlzauber-Zielmatrix",
+        quarantine_note: "Null Verstöße im Datensatz: Strikte Isolation verhindert jede Kontamination der Trainingsdaten.",
+        splits_title: "Eingefrorene Partitionierungsmatrix",
+        col_split: "Split",
+        col_games: "Spiele",
+        col_decisions: "Entscheidungen",
+        col_pct: "Prozentsatz",
+        col_role: "Zweck",
+        col_artifact: "ChatML-Quelldatei",
+        split_role_train: "Gewichts- und Kopfoptimierung",
+        split_role_val: "Modellauswahl und Early Stopping",
+        split_role_test: "Strikte finale Blindbewertung",
+        split_role_holdout: "Chronologische Meta-Drift-Prüfung",
+        pipeline_title: "End-to-End Imitationslern-Pipeline",
+        p1_title: "Kartendatenbank & TokenGraph-Erfassung",
+        badge_completed: "Abgeschlossen",
+        p1_desc: "Parsing von 35.807 Karten in SQLite mit O(1) In-Memory-Abfragen (>22 Mio./s). TokenGraph (8.661 Karten, 6.069 Relationen) integriert.",
+        p2_title: "Replay-Streaming & Option Oracle",
+        p2_desc: "Streaming von 1.041 Replay-Archiven ohne Entpacken. GameStateTracker rekonstruiert Spielfeld und Hand und erfasst legale Kandidaten.",
+        p3_title: "Taktischer Coach & Lethal-Burst-Detektor",
+        p3_desc: "Deterministischer Nachspiel-Bewerter zur Berechnung des maximalen Burst-Schadens, Tempos und Erkennung taktischer Fehler.",
+        p4_title: "Supervised Fine-Tuning (QLoRA ChatML)",
+        badge_blocked_cuda: "Wartet auf CUDA",
+        p4_desc: "Autoregressiver Token-Trainer für Qwen-2.5-Coder-7B (4-Bit NF4). Wartet auf isolierte CUDA-Umgebung.",
+        p5_title: "NLI Cross-Encoder / Ranking-Architektur",
+        badge_active: "Aktiv",
+        p5_desc: "Scoring von Kandidaten in einem Durchlauf via ModernCE-large-nli (395M). Senkt Latenz auf 15 ms ohne Halluzinationen.",
+        breakdown_title: "ModernCE Detailgenauigkeit nach Aktionsart",
+        breakdown_subtitle: "Klassenvergleich auf 1.198 Validierungsentscheidungen.",
+        col_action: "Aktionsart",
+        col_samples: "Stichprobe",
+        col_zero: "Zero-Shot",
+        col_linear: "Linear Head",
+        col_delta: "Delta",
+        status_blocker: "Blocker",
+        collapse_title: "Analyse: Das Action Collapse Phänomen",
+        collapse_desc: "Im Experiment tuning_tempered wurde Potenzgewichtung getestet, um die 0%-Genauigkeit bei Heldenfähigkeiten zu beheben.",
+        collapse_box: "Katastrophale Degradation: Übermäßige Gewichtung seltener Klassen ließ die PLAY-Genauigkeit von 26.06% auf 8.14%–15.70% abstürzen.",
+        solution_title: "Architektonische Lösung: Factorized Ranker",
+        solution_desc: "Entkopplung der Makro-Aktionstyp-Entscheidung vom Karten-Ranking verhindert Verzerrungen des Merkmalsraums.",
+        sabber_title: "Dual-Engine-Stack: AI Assistant + SabberStone",
+        sabber_subtitle: "Integration mit C# .NET Core Simulator in D:\\AI\\SabberStone.",
+        sabber_badge: "C# Core: Build erfolgreich",
+        engine1_tag: "Wahrnehmungs- & Entscheidungs-Engine",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "Regel- & Spielgenerierungs-Engine",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "Synergien für Post-Training (NSD / DPO):",
+        dpo_desc: "Menschliche Replays liefern positive Pfade, aber keine kontrafaktischen Verzweigungen. SabberStone simuliert nicht gewählte Aktionen deterministisch, um fehlerfreie Präferenzpaare für DPO zu generieren.",
+        telem_title: "ResourceGuard Hardware-Profil (RTX 4060)",
+        telem_subtitle: "6.759 Echtzeit-Telemetrie-Messungen während der Extraktion von 102.469 Kandidaten.",
+        telem_badge: "0 Fehler / 0 OOM",
+        telem_peak_gpu: "GPU VRAM Spitzenwert",
+        telem_gpu_sub: "Unter 4.096 MiB Sicherheitsgrenze",
+        telem_min_vram: "Min. freier GPU-Speicher",
+        telem_vram_sub: ">4 GB garantierter Puffer",
+        telem_min_ram: "Min. freier Arbeitsspeicher",
+        telem_ram_sub: ">8 GB stabiler Puffer",
+        telem_peak_temp: "Spitzen-GPU-Temperatur",
+        telem_temp_sub: "Weit unter 75 °C Drosselgrenze",
+        repro_title: "CLI-Reproduktionsbefehle",
+        repro_subtitle: "Einzeilige Befehle zur Ausführung im Hauptverzeichnis.",
+        repro_step1: "1. Ausführen der 73 Verifikationstests:",
+        repro_step2: "2. 35.807 Karten indizieren und TokenGraph erstellen:",
+        repro_step3: "3. Schema v2 Entscheidungs-Datensatz generieren:",
+        repro_step4: "4. SabberStone C# Engine kompilieren (Release):",
+        btn_copy: "Kopieren",
+        footer_title: "Hearthstone AI Assistant & SabberStone Ökosystem • Open Source Forschungssuite",
+        footer_verified: "Verifiziert: 18.09.2026"
+      },
+      es: {
+        header_observatory: "observatorio",
+        header_tests: "73/73 pruebas superadas",
+        header_repo: "Repositorio",
+        hero_badge_legend: "Conjunto de Replays Rango Leyenda",
+        hero_badge_oracle: "Contrato Option Oracle",
+        hero_badge_stack: "Pila de Simulación Dual",
+        hero_title: "Asistente IA de Hearthstone — Observatorio de Entrenamiento Abierto",
+        hero_desc: "Telemetría completa de hardware, particiones sin fugas a nivel de partida, aprendizaje por imitación determinista y validación cruzada con el motor C# SabberStone.",
+        kpi_decisions_title: "Decisiones Aceptadas",
+        kpi_decisions_sub: "87.34% cobertura (540 partidas)",
+        kpi_top1_title: "ModernCE Precisión Top-1",
+        kpi_top1_sub: "+8.98 pp sobre aleatorio (N>1)",
+        kpi_splits_title: "Particiones sin Fugas",
+        kpi_splits_sub: "390 ent / 48 val / 48 test",
+        kpi_cards_title: "Base de Datos de Cartas",
+        kpi_cards_sub: ">22M búsquedas/s en memoria",
+        kpi_quarantine_title: "Puerta de Cuarentena",
+        kpi_quarantine_sub: "1.725 mecánicas Intercambiables",
+        kpi_dual_title: "Pila de Doble Motor",
+        kpi_dual_sub: "Replays + SabberStone C#",
+        tab_benchmarks: "Evaluación de Modelos",
+        tab_dataset: "Datos y Particiones",
+        tab_pipeline: "Línea de Entrenamiento",
+        tab_modernce: "ModernCE y Colapso de Acción",
+        tab_sabberstone: "Simulador SabberStone",
+        tab_telemetry: "Protección de Hardware",
+        tab_repro: "Guía de Comandos CLI",
+        benchmarks_title: "Evaluación de Selección de Próxima Acción",
+        benchmarks_subtitle: "Evaluado en la partición de validación congelada (1.198 decisiones / 10.638 pares de candidatos en 48 partidas a ciegas).",
+        benchmarks_badge: "Decisiones con N > 1: 1.066",
+        col_model: "Modelo / Configuración",
+        col_paradigm: "Paradigma de Inferencia",
+        col_top1_all: "Top-1 (Total)",
+        col_top1_n1: "Top-1 (N>1)",
+        col_top3: "Top-3 (Total)",
+        col_latency: "Latencia mediana p50",
+        col_status: "Estado",
+        row_random_name: "Línea base aleatoria uniforme",
+        row_random_paradigm: "Selección estocástica",
+        status_baseline: "Línea base",
+        row_first_name: "Heurística del primer candidato",
+        row_first_paradigm: "Heurística de orden",
+        status_subrandom: "Inferior a la base",
+        row_zero_name: "ModernCE-large-nli (395M)",
+        row_zero_paradigm: "NLI Zero-Shot",
+        status_rejected_hp: "Rechazado (HP=0%)",
+        row_linear_name: "Cabezal Lineal Supervisado ModernCE",
+        badge_best: "Mejor",
+        row_linear_paradigm: "Incrustación 1024d congelada + Cabezal",
+        status_validated: "Validado",
+        row_weights_name: "Ponderación de clases (α=0.25)",
+        row_weights_paradigm: "Ponderación de pérdida",
+        status_action_collapse: "Colapso de Acción",
+        row_qwen_name: "Qwen-2.5-1.5B (SFT autorregresivo)",
+        row_qwen_paradigm: "SFT generativo",
+        status_blocked_cuda: "En espera de CUDA",
+        tenet1_title: "1. Principio de fidelidad factual",
+        tenet1_desc: "Todas las métricas se analizan directamente desde informes SHA-256. Sin estimaciones optimistas: fallos como poder de héroe=0% se documentan abiertamente.",
+        tenet2_title: "2. Protocolo de cero fugas de datos",
+        tenet2_desc: "Todas las particiones se dividen estrictamente por 540 IDs de partida únicos. Prohibido mezclar turnos para evitar la memorización de cartas.",
+        tenet3_title: "3. Oráculo de Replays determinista",
+        tenet3_desc: "Las decisiones provienen de los registros de Blizzard (DebugPrintOptions error=NONE). El conjunto de candidatos es 100% legal y determinista.",
+        dist_title: "Distribución de acciones aceptadas (Schema v2)",
+        dist_subtitle: "12.840 decisiones extraídas de 549 partidas ganadas en Rango Leyenda.",
+        action_play: "Jugar carta (PLAY)",
+        action_attack: "Atacar (ATTACK)",
+        action_end_turn: "Terminar turno (END_TURN)",
+        action_hero_power: "Poder de héroe (HERO_POWER)",
+        action_location: "Activar ubicación (LOCATION)",
+        action_power: "Habilidad especial (POWER)",
+        quarantine_title: "Análisis de causas en cuarentena",
+        quarantine_subtitle: "1.862 registros aislados para preservar la calidad del entrenamiento.",
+        quarantine_badge: "12.66% en cuarentena",
+        col_q_trigger: "Condición de cuarentena",
+        col_q_count: "Cantidad",
+        col_q_share: "Proporción",
+        col_q_res: "Ruta de resolución",
+        q_res_tradeable: "Formalización del formato Intercambiable",
+        q_res_mana: "Reconstrucción de auras de maná",
+        q_res_subopt: "Matriz de objetivos de hechizos Elige Uno",
+        quarantine_note: "Cero violaciones en el conjunto aceptado: El aislamiento estricto garantiza que cero mecánicas dudosas contaminen el entrenamiento.",
+        splits_title: "Matriz de particiones congeladas",
+        col_split: "Partición",
+        col_games: "Partidas",
+        col_decisions: "Decisiones",
+        col_pct: "Porcentaje",
+        col_role: "Propósito",
+        col_artifact: "Archivo fuente ChatML",
+        split_role_train: "Optimización de pesos y cabezal",
+        split_role_val: "Selección de modelo y parada temprana",
+        split_role_test: "Evaluación ciega final",
+        split_role_holdout: "Desplazamiento cronológico de meta",
+        pipeline_title: "Línea completa de aprendizaje por imitación",
+        p1_title: "Base de cartas e ingesta de TokenGraph",
+        badge_completed: "Completado",
+        p1_desc: "35.807 entidades analizadas a SQLite con búsquedas O(1) en memoria (>22M/s). Integración de TokenGraph (8.661 cartas, 6.069 relaciones).",
+        p2_title: "Streaming de replays y Option Oracle",
+        p2_desc: "Lectura por secuencias de 1.041 archivos sin descompresión. Reconstrucción de mesa y mano, extrayendo candidatos legales.",
+        p3_title: "Entrenador táctico y detector de letal",
+        p3_desc: "Evaluador determinista de partidas que calcula daño explosivo máximo, uso de maná y errores tácticos.",
+        p4_title: "Ajuste fino supervisado (QLoRA ChatML)",
+        badge_blocked_cuda: "En espera de CUDA",
+        p4_desc: "Entrenador autorregresivo para Qwen-2.5-Coder-7B (4-bit NF4). A la espera de entorno CUDA dedicado.",
+        p5_title: "NLI Cross-Encoder / Ranking de acciones",
+        badge_active: "Activo",
+        p5_desc: "Puntuación de candidatos en una sola pasada mediante ModernCE-large-nli (395M). Reduce latencia a 15 ms eliminando alucinaciones.",
+        breakdown_title: "Desglose de precisión por acción en ModernCE",
+        breakdown_subtitle: "Comparación de precisión en 1.198 decisiones de validación.",
+        col_action: "Tipo de acción",
+        col_samples: "Muestra",
+        col_zero: "Zero-Shot",
+        col_linear: "Cabezal Lineal",
+        col_delta: "Variación",
+        status_blocker: "Bloqueante",
+        collapse_title: "Análisis: El fenómeno de Colapso de Acción",
+        collapse_desc: "En el experimento tuning_tempered se probó ponderación de clases para mitigar la precisión 0% en poder de héroe.",
+        collapse_box: "Degradación crítica: Ponderar clases raras hundió la precisión de PLAY de 26.06% a 8.14%–15.70%, sin superar el filtro de calidad.",
+        solution_title: "Solución arquitectónica: Factorized Ranker",
+        solution_desc: "Desacoplar la decisión de tipo de macroacción del ranking de cartas evita que las pérdidas minoritarias deformen las características.",
+        sabber_title: "Pila de doble motor: Asistente IA y SabberStone",
+        sabber_subtitle: "Integración con simulador C# .NET Core en D:\\AI\\SabberStone.",
+        sabber_badge: "C# Core: Compilación exitosa",
+        engine1_tag: "Motor de percepción y decisiones",
+        engine1_title: "Hearthstone AI Assistant",
+        engine2_tag: "Motor de reglas y simulación",
+        engine2_title: "SabberStone Core Engine",
+        dpo_title: "Sinergia para Post-Training (NSD / DPO):",
+        dpo_desc: "Las partidas humanas brindan trayectorias positivas, pero carecen de exploración contrafáctica. SabberStone simula acciones no elegidas para verificar derrotas o pérdidas de letal, generando pares de preferencia puros para DPO.",
+        telem_title: "Perfil de Hardware ResourceGuard (RTX 4060)",
+        telem_subtitle: "6.759 muestras en tiempo real durante la extracción de 102.469 candidatos.",
+        telem_badge: "0 fallos / 0 OOM",
+        telem_peak_gpu: "VRAM de GPU pico",
+        telem_gpu_sub: "Bajo el límite de 4.096 MiB",
+        telem_min_vram: "VRAM libre mínima",
+        telem_vram_sub: "Margen garantizado > 4 GB",
+        telem_min_ram: "RAM libre mínima",
+        telem_ram_sub: "Búfer saludable > 8 GB",
+        telem_peak_temp: "Temperatura pico de GPU",
+        telem_temp_sub: "Muy por debajo del límite de 75 °C",
+        repro_title: "Comandos de reproducción CLI",
+        repro_subtitle: "Comandos directos para ejecutar desde la raíz del proyecto.",
+        repro_step1: "1. Ejecutar 73 pruebas de verificación:",
+        repro_step2: "2. Indexar 35.807 cartas y construir TokenGraph:",
+        repro_step3: "3. Generar conjunto de datos Schema v2 oficial:",
+        repro_step4: "4. Compilar motor C# SabberStone (Release):",
+        btn_copy: "Copiar",
+        footer_title: "Ecosistema Hearthstone AI Assistant & SabberStone • Suite de Investigación Abierta",
+        footer_verified: "Verificado: 18-09-2026"
+      }
+    };
+
+    let currentLang = localStorage.getItem('hs_lang') || 'en';
+
+    function setLanguage(lang) {
+      if (!i18nData[lang]) lang = 'en';
+      currentLang = lang;
+      localStorage.setItem('hs_lang', lang);
+
+      // Update lang buttons
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        if (btn.getAttribute('data-lang') === lang) {
+          btn.classList.add('bg-zinc-800', 'text-zinc-100', 'shadow-sm');
+          btn.classList.remove('text-zinc-400');
+        } else {
+          btn.classList.remove('bg-zinc-800', 'text-zinc-100', 'shadow-sm');
+          btn.classList.add('text-zinc-400');
+        }
+      });
+
+      // Update HTML lang attribute
+      document.documentElement.lang = lang;
+
+      // Update all translatable elements
+      const data = i18nData[lang];
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (data[key]) {
+          el.innerHTML = data[key];
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Setup language buttons
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          setLanguage(btn.getAttribute('data-lang'));
+        });
+      });
+
+      // Initial language setup
+      setLanguage(currentLang);
+
+      // Setup tab switching
+      const triggers = document.querySelectorAll('.tab-trigger');
+      const contents = document.querySelectorAll('.tab-content');
+
+      triggers.forEach(trigger => {
+        trigger.addEventListener('click', () => {
+          const targetId = trigger.getAttribute('data-tab');
+
+          triggers.forEach(t => {
+            t.classList.remove('bg-zinc-800', 'text-zinc-100', 'shadow-sm');
+            t.classList.add('text-zinc-400');
+          });
+          trigger.classList.add('bg-zinc-800', 'text-zinc-100', 'shadow-sm');
+          trigger.classList.remove('text-zinc-400');
+
+          contents.forEach(content => {
+            content.classList.remove('active');
+          });
+          const activeContent = document.getElementById(targetId);
+          if (activeContent) {
+            activeContent.classList.add('active');
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>
