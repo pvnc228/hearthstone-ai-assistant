@@ -32,10 +32,11 @@
 
 ---
 
-## Фаза 4: Live In-Game Watcher (Реальное время — отложено)
-- [ ] ⚪ **4.1. Power.log Watcher**: Асинхронный tailer `D:\Hearthstone\Logs\Power.log`.
-- [ ] ⚪ **4.2. Rule Validator (Compliance Engine)**: Быстрая проверка доступности маны и легальных целей.
-- [ ] ⚪ **4.3. Real-Time Advisor CLI / Overlay**: Вывод 3-5 кандидатов действий за < 3 секунд на ход с приоритетами.
+## Фаза 4: Live In-Game Watcher & Assistant Harness (Реальное время)
+- [x] 🟢 **4.1. Power.log Watcher**: Потоковый tailer src/live/watcher.py для D:\Hearthstone\Logs\Hearthstone_* с автопоиском сессии, поддержкой ротации файлов и mock-стримером по реплеям.
+- [x] 🟢 **4.2. Rule Validator & Action Guidance**: Модули src/live/guidance.py и src/live/event_hub.py для перевода опций DebugPrintOptions в понятные инструкции игроку (позиция в руке, стол, цель) без инъекций в память игры.
+- [x] 🟢 **4.3. Real-Time Advisor CLI Harness**: Диспетчер моделей src/live/dispatcher.py (LethalDetector + Ranker + Ollama CoT) и консольный HUD src/live/main.py со временем отклика < 15 мс.
+- [ ] ⚪ **4.4. HDT-style Floating/Docked Overlay**: Разработка полноценного графического оверлея в привычном стиле Hearthstone Deck Tracker (Phase 2).
 
 ---
 
